@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-toggle-chat-pin"
+description = "Enables the toggle_chat_pin command without any pre-configured scope."
+commands.allow = ["toggle_chat_pin"]
+
+[[permission]]
+identifier = "deny-toggle-chat-pin"
+description = "Denies the toggle_chat_pin command without any pre-configured scope."
+commands.deny = ["toggle_chat_pin"]

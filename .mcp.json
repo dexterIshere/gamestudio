@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "gamestudio": {
+      "command": ".venv/bin/gamestudio",
+      "args": ["mcp"]
+    },
+    "blender": {
+      "command": "scripts/mcp/blender",
+      "args": []
+    },
+    "godot": {
+      "command": "scripts/mcp/godot",
+      "args": []
+    }
+  }
+}

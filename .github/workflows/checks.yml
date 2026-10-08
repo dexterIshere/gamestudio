@@ -1,0 +1,160 @@
+# Studio checks: the steps of `make check`, one by one, then the smoke test of
+# the 3D chain (`scripts/smoke_3d.py`).
+#
+# Mapping to the local workstation (Makefile, target `check`):
+#   ruff check src                -> step "Lint"
+#   pytest -q                     -> step "Tests"
+#   gamestudio skills check       -> step "Skills index"
+#   gamestudio context check      -> step "Code map"
+#   cd app && npx tsc --noEmit    -> step "Front-end types"
+#   node scripts/translations.mjs -> step "Front-end translations"
+# A step added to `make check` is added here, and the other way round.
+#
+# Nothing here calls Runware or Tripo: the tests and the smoke test run offline.
+# Both engines (Godot, Blender) are installed on a best-effort basis — their
+# absence skips a validation, it never passes it off as good.
+
+name: Checks
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  # Lets CI be re-run by hand from the Actions tab.
+  workflow_dispatch:
+
+# One run per branch: a new push cancels the previous run, which has nothing
+# left to prove.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: make check + 3D smoke test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      # `requires-python = ">=3.11"` in pyproject.toml: test the declared floor.
+      # ruff already targets py311 (`target-version`), so no newer syntax can
+      # slip into the code unnoticed.
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install the studio (dev extras)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Lint (ruff)
+        run: ruff check src
+
+      - name: Tests (pytest)
+        run: pytest -q
+
+      # A drifting procedures index would give an agent a wrong list; a broken
+      # `.agents/skills` mirror would hide them from it.
+      # `GAMESTUDIO_HOME` anchors the root on the checked-out repository.
+      - name: Skills index (gamestudio skills check)
+        env:
+          GAMESTUDIO_HOME: ${{ github.workspace }}
+        run: gamestudio skills check
+
+      # The code map, imported by CLAUDE.md: stale, it would send an agent to a
+      # file that no longer exists.
+      - name: Code map (gamestudio context check)
+        env:
+          GAMESTUDIO_HOME: ${{ github.workspace }}
+        run: gamestudio context check
+
+      # Vite 8 requires Node ^20.19 || >=22.12 (engines in its package.json).
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install the front end
+        working-directory: app
+        run: npm ci
+
+      - name: Front-end types (tsc --noEmit)
+        working-directory: app
+        run: npx tsc --noEmit
+
+      # No displayed text outside t(), no phrase without its French translation.
+      - name: Front-end translations
+        working-directory: app
+        run: node scripts/translations.mjs
+
+      # Both engines are cached: without it, every run would download ~450 MB
+      # again for a validation that does not change.
+      - name: Engine cache (Godot, Blender)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local/godot
+            ~/.local/blender
+          key: engines-${{ runner.os }}-godot-4.4-stable-blender-5.2.1
+
+      # Godot is what really validates a scene: skinning NodePaths resolved,
+      # weight counts, animation tracks. 4.4 is the version the project declares
+      # (config/features in project.godot).
+      # A failure of this step does not fail the job: without Godot, the 3D
+      # smoke test writes the resources without having the engine validate
+      # them, and says so.
+      - name: Install Godot 4.4 (optional — a failure does not fail the job)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          dir="$HOME/.local/godot/4.4-stable"
+          bin="$dir/godot"
+          if [ ! -x "$bin" ]; then
+            mkdir -p "$dir"
+            url="https://github.com/godotengine/godot/releases/download/4.4-stable/Godot_v4.4-stable_linux.x86_64.zip"
+            curl -fsSL -o /tmp/godot.zip "$url"
+            unzip -oq /tmp/godot.zip -d "$dir"
+            mv "$dir/Godot_v4.4-stable_linux.x86_64" "$bin"
+            chmod +x "$bin"
+          fi
+          echo "$dir" >> "$GITHUB_PATH"
+          "$bin" --version
+
+      # Blender carries all the local 3D (the fixture standing in for an agent's
+      # delivery, the sheet rendering). 5.2 LTS is the studio's version.
+      - name: Install Blender 5.2 LTS (optional — a failure does not fail the job)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          dir="$HOME/.local/blender/5.2.1"
+          if [ ! -x "$dir/blender" ]; then
+            mkdir -p "$dir"
+            curl -fsSL -o /tmp/blender.tar.xz \
+              "https://download.blender.org/release/Blender5.2/blender-5.2.1-linux-x64.tar.xz"
+            tar -xJf /tmp/blender.tar.xz -C "$dir" --strip-components=1
+          fi
+          echo "$dir" >> "$GITHUB_PATH"
+          "$dir/blender" --version | head -1
+
+      # 3D chain regression test: what the rigging and animating agent delivers
+      # (a character with a skeleton, a machine with parts), its inventory, one
+      # sheet per animation and per direction, the Godot resources, every
+      # animation played headless. No network call, no agent.
+      # Without Blender, the step is skipped WITH an explicit warning: it is then
+      # not a success, and the step name says so.
+      - name: 3D smoke test (skipped, so proving nothing, if Blender is missing)
+        run: |
+          if ! blender --version >/dev/null 2>&1; then
+            echo "::warning::skipped: Blender missing — the 3D chain was not run and proved nothing."
+            exit 0
+          fi
+          python scripts/smoke_3d.py

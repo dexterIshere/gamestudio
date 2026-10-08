@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-toggle-studio"
+description = "Enables the toggle_studio command without any pre-configured scope."
+commands.allow = ["toggle_studio"]
+
+[[permission]]
+identifier = "deny-toggle-studio"
+description = "Denies the toggle_studio command without any pre-configured scope."
+commands.deny = ["toggle_studio"]

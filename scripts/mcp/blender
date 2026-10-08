@@ -1,0 +1,18 @@
+#!/bin/sh
+# Launcher for the blender-mcp MCP server (ahujasid), a companion of the studio.
+#
+# A relative path in `.mcp.json`, `.codex/config.toml` or
+# `.gemini/settings.json` launches the same way in every agent CLI, whereas
+# `${HOME}` is expanded only by some of them (Kimi leaves it as is). Locations
+# can be overridden through the environment.
+BLENDER_MCP_BIN="${BLENDER_MCP_BIN:-$HOME/.local/share/blender-mcp/bin/blender-mcp}"
+# 9877 rather than 9876 (the blender-mcp default): the port on which the studio
+# expects the addon (`gamestudio connections`). Set the addon to the same port,
+# or set BLENDER_PORT.
+export BLENDER_PORT="${BLENDER_PORT:-9877}"
+export DISABLE_TELEMETRY="${DISABLE_TELEMETRY:-true}"
+if [ ! -x "$BLENDER_MCP_BIN" ]; then
+    echo "blender-mcp not found: $BLENDER_MCP_BIN (BLENDER_MCP_BIN)" >&2
+    exit 127
+fi
+exec "$BLENDER_MCP_BIN" "$@"

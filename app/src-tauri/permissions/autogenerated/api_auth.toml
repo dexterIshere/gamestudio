@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-api-auth"
+description = "Enables the api_auth command without any pre-configured scope."
+commands.allow = ["api_auth"]
+
+[[permission]]
+identifier = "deny-api-auth"
+description = "Denies the api_auth command without any pre-configured scope."
+commands.deny = ["api_auth"]

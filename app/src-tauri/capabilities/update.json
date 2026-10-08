@@ -1,0 +1,19 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "update",
+  "description": "The update window: start the rebuild, follow its progress, restart, or open the studio without it.",
+  "windows": [
+    "update"
+  ],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize",
+    "allow-update-build",
+    "allow-update-progress",
+    "allow-update-now",
+    "allow-update-skip",
+    "allow-set-language"
+  ]
+}

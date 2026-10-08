@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "chats",
+  "description": "The Chats window: attach a file, copy and paste in the terminals, pin the window, hide or show the studio.",
+  "windows": ["chat"],
+  "permissions": [
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize",
+    "dialog:allow-open",
+    "allow-api-auth",
+    "allow-toggle-studio",
+    "allow-chat-pinned",
+    "allow-toggle-chat-pin",
+    "allow-clipboard-read",
+    "allow-clipboard-write"
+  ]
+}

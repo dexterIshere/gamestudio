@@ -1,0 +1,26 @@
+# Line endings: one style in the repository, whatever the machine.
+# `text=auto` lets git tell text files apart on its own.
+* text=auto eol=lf
+
+# Binary files: no conversion, no textual diff.
+#
+# In the tree today: png, woff2, ico, icns. The others are images and fonts a
+# contribution may add. What the studio produces (glb, SQLite database, renders)
+# lives in a project's `.gamestudio/` and is never tracked here.
+*.png         binary
+*.jpg         binary
+*.jpeg        binary
+*.webp        binary
+*.ttf         binary
+*.woff2       binary
+*.ico         binary
+*.icns        binary
+
+# Windows scripts: they must stay CRLF to stay executable.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+
+# Vendored third-party material: it does not count as studio code in the
+# repository statistics, and a diff on it needs no review — it is replaced as a
+# whole (see .claude/skills/img2threejs/VENDOR.md).
+.claude/skills/img2threejs/** linguist-vendored

@@ -1,0 +1,12 @@
+#!/bin/sh
+# Launcher for the godot-mcp MCP server (Coding-Solo), a companion of the studio.
+#
+# Same reason as `scripts/mcp/blender`: a relative path launches the same way
+# in every agent CLI. Locations can be overridden through the environment.
+GODOT_MCP="${GODOT_MCP:-$HOME/.local/share/godot-mcp/build/index.js}"
+export GODOT_PATH="${GODOT_PATH:-$(command -v godot)}"
+if [ ! -f "$GODOT_MCP" ]; then
+    echo "godot-mcp not found: $GODOT_MCP (GODOT_MCP)" >&2
+    exit 127
+fi
+exec node "$GODOT_MCP" "$@"

@@ -1,0 +1,24 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "studio",
+  "description": "The studio window: pick a file or a folder, show a file in the file manager, open a web link in the browser, follow and start the update, show the Chats, copy.",
+  "windows": ["main"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize",
+    "dialog:allow-open",
+    "opener:allow-reveal-item-in-dir",
+    "opener:allow-open-url",
+    "opener:allow-default-urls",
+    "allow-api-auth",
+    "allow-set-language",
+    "allow-show-chat",
+    "allow-update-status",
+    "allow-update-build",
+    "allow-update-progress",
+    "allow-update-now",
+    "allow-clipboard-write"
+  ]
+}

@@ -1,0 +1,26 @@
+# Machine-specific keys and paths: only the example is shared.
+.env
+.env.*
+!.env.example
+# Personal Claude Code permissions and settings.
+.claude/settings.local.json
+data/
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+app/dist/
+app/src-tauri/target/
+app/src-tauri/gen/
+# The agent briefing describes today's state: it is regenerated, never committed.
+context/briefing.md
+# What is dropped for an agent (screenshots, dragged files): machine-specific.
+inbox/attachments/*
+!inbox/attachments/.gitkeep
+# Each user's personal notes on the studio (identity, goals, preferences).
+context/identity.md
+context/goals.md
+context/preferences.md

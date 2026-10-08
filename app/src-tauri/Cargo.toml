@@ -1,0 +1,63 @@
+[package]
+name = "gamestudio"
+version = "0.3.0"
+description = "Game asset generation studio"
+license-file = "../../LICENSE"
+edition = "2021"
+rust-version = "1.77"
+
+# `rlib` only: `staticlib` and `cdylib` (Tauri's template) only serve Android
+# and iOS, and each rebuild would redo them: a 230 MB archive and a shared
+# library through LTO, for nothing.
+[lib]
+name = "gamestudio_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# `tray-icon`: the system tray icon, from which the studio is reopened or quit
+# when its windows are hidden.
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+# A single instance: launching the studio again (launcher, `make studio`) shows
+# its windows instead of opening a second one with its own server.
+tauri-plugin-single-instance = "2"
+
+# To read `hyprctl clients -j`: pinning is a compositor notion, not a window
+# one (see `chat_client` in `lib.rs`).
+serde_json = "1"
+
+# Only for PR_SET_PDEATHSIG: the server must die with the shell even if the
+# shell is killed without running its clean stop.
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+# The clipboard read by GTK, not by the page: `navigator.clipboard` opens a
+# "Paste" menu to confirm on every paste there (see `clipboard_read`). Already
+# pulled in by Tauri, so nothing new to compile.
+gtk = "0.18"
+
+# The profile of the binary `make studio` rebuilds on every update: fast to
+# rebuild rather than small. Full LTO on a single codegen unit costs 40 s of
+# linking per modified page, for a shell that computes nothing. `incremental`
+# only affects this crate: registry dependencies never recompile.
+[profile.release]
+opt-level = "s"
+incremental = true
+panic = "abort"
+strip = true
+
+# What `generate_context!` runs at compile time to embed the front: a BLAKE3 of
+# each file (`tauri-codegen`), then brotli quality 9 on those that changed.
+# Cargo builds proc-macros unoptimized: recompressing a single chunk of a few
+# hundred KB took 5 s. Optimized, these crates do it in a fraction of a second.
+[profile.release.package.tauri-codegen]
+opt-level = 3
+[profile.release.package.brotli]
+opt-level = 3
+[profile.release.package.alloc-no-stdlib]
+opt-level = 3
+[profile.release.package.alloc-stdlib]
+opt-level = 3

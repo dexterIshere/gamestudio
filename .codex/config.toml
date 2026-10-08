@@ -1,0 +1,11 @@
+# The studio's MCP servers for Codex: the same as `.mcp.json`.
+# Codex reads this file only if the repository is trusted.
+[mcp_servers.gamestudio]
+command = ".venv/bin/gamestudio"
+args = ["mcp"]
+
+[mcp_servers.blender]
+command = "scripts/mcp/blender"
+
+[mcp_servers.godot]
+command = "scripts/mcp/godot"

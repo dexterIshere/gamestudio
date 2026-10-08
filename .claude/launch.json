@@ -1,0 +1,48 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "front",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "app",
+        "run",
+        "dev"
+      ],
+      "port": 5183
+    },
+    {
+      "name": "studio-preview",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "GAMESTUDIO_TOKEN=local-preview",
+        "GAMESTUDIO_WORKERS=0",
+        ".venv/bin/gamestudio",
+        "serve",
+        "--port",
+        "7799",
+        "--no-worker"
+      ],
+      "port": 7799
+    },
+    {
+      "name": "front-preview",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "VITE_API_BASE=http://127.0.0.1:7799",
+        "VITE_API_TOKEN=local-preview",
+        "npm",
+        "--prefix",
+        "app",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5184",
+        "--strictPort"
+      ],
+      "port": 5184
+    }
+  ]
+}
