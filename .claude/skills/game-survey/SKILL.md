@@ -99,7 +99,8 @@ rules, and the Universe shows each one. What falls to the agent:
   reported, not faked.
 - **No verdict**: what is in the game is kept; what is no longer wanted leaves
   it — at the user's request. A shader to rework is discussed
-  (`lookdev_brief`).
+  (`lookdev_brief`); so is a whole section — its colors, its typography, a
+  family of shaders (`lookdev_aspect_brief`).
 
 ## Writing a card
 

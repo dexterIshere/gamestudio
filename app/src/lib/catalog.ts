@@ -40,6 +40,16 @@ export const IMAGE_MODELS: ImageModel[] = [
     traits: [t("Touch-up"), t("Faithful to the source")], usd: 0.04 },
 ];
 
+/**
+ * What a batch of images costs: the model's price, per megapixel beyond one
+ * (the server's grid, `forge.estimate`). `null` for a model outside the catalog.
+ */
+export function imageCost(air: string, count: number, width: number, height: number): number | null {
+  const model = IMAGE_MODELS.find((entry) => entry.air === air);
+  if (!model) return null;
+  return Math.round(model.usd * count * Math.max(1, (width * height) / (1024 * 1024)) * 10000) / 10000;
+}
+
 export const MESH_MODELS = [
   { air: "tripo:v3.1@0", label: "Tripo v3.1", sub: t("clean topology, made for games"), usd: 0.4 },
   { air: "tencent:hunyuan-3d@3.1-pro", label: "Hunyuan 3D 3.1 Pro", sub: t("complex organic shapes"), usd: 0.5 },

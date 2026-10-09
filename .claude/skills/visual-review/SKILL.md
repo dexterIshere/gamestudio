@@ -70,5 +70,5 @@ acceptance stays with the user.
 
 Dependencies: Godot 4 with a renderer (not headless), ffmpeg for
 `video_frames`. Adapted from `gameplay-visual-review` (mr-mak-workspace, MIT —
-see `THIRD_PARTY_NOTICES.md`). See `vfx`, `animation`, `blender-godot-bridge`,
+see `docs/THIRD_PARTY_NOTICES.md`). See `vfx`, `animation`, `blender-godot-bridge`,
 `validation`.

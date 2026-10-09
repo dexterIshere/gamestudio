@@ -18,7 +18,7 @@ import {
 import { activeProject } from "../lib/store";
 import TerminalPane from "./TerminalPane";
 import { HARNESS_LOGOS } from "./logos";
-import { TAB_COLORS, readMeta, writeMeta, type ChatMeta } from "./meta";
+import { META_KEY, TAB_COLORS, readMeta, validEffort, writeMeta, type ChatMeta } from "./meta";
 import { t, tr } from "../lib/i18n";
 import { folderName } from "../lib/paths";
 
@@ -111,6 +111,15 @@ export default function ChatApp() {
   });
 
   useEffect(() => writeMeta(meta), [meta]);
+  // A handoff dialog, in the studio window, remembers an effort level too:
+  // take it, so this window does not write back the old one.
+  useEffect(() => {
+    const follow = (event: StorageEvent) => {
+      if (event.key === META_KEY) setMeta((current) => ({ ...current, effort: readMeta().effort }));
+    };
+    window.addEventListener("storage", follow);
+    return () => window.removeEventListener("storage", follow);
+  }, []);
 
   // The active project's folder. A studio project without a folder works at the
   // studio root: its sessions are then those in no other project's folder.
@@ -874,11 +883,6 @@ function InboxDialog({ onClose, onTake }: {
       )}
     </Dialog>
   );
-}
-
-/** The stored level if the agent's model accepts it, else its default (""). */
-function validEffort(harness: Harness, level: string | undefined): string {
-  return level && harness.effort_levels.includes(level) ? level : "";
 }
 
 /**

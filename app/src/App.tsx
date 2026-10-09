@@ -24,6 +24,7 @@ import Lookdev from "./pages/Lookdev";
 import ShowcasePage from "./pages/Showcase";
 import Compare from "./pages/Compare";
 import WorldPage, { SectionDialog, WorldGlyph } from "./pages/World";
+import ActivityBar from "./components/ActivityBar";
 import Toasts from "./components/Toasts";
 import { t, tn } from "./lib/i18n";
 
@@ -709,6 +710,7 @@ export default function App() {
           </span>
           <span className="sep">·</span>
           <State state={connected ? "running" : "pending"} label={connected ? t("queue live") : t("queue offline")} />
+          <ActivityBar project={project} />
           <span className="spacer" />
           <span className="optional">
             {t("project")} <b>{project || t("none")}</b>

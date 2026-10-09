@@ -32,13 +32,16 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import threading
+import time
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from ..store.folders import BRIEFING_FOLDER, project_paths
 from ..store.library import Librarian, render_folder
-from . import documents, survey
+from . import documents, preview_data, survey
 from .context import space, studio
 from .errors import NotFound, ServiceError
 
@@ -136,7 +139,7 @@ def resolve_scene(project: str, scene: str = "", godot: str = "",
     if file.suffix not in (".tscn", ".scn"):
         raise ServiceError(f"not a Godot scene: {res_path}")
     return {"root": root, "base": base, "godot": entry, "res_path": res_path,
-            "local": file.relative_to(root.resolve()).as_posix()}
+            "local": file.relative_to(root.resolve()).as_posix(), "project": project}
 
 
 def setup_script(code: str) -> str:
@@ -212,16 +215,60 @@ def run_engine(base: Path, script: Path, args: list[str], width: int, height: in
     return engine, log, result
 
 
-def render_png(target: dict[str, Any], output: Path, *, scale: float = 2.0,
-               width: int = 0, height: int = 0, delay: float = 0.5, crop: bool = False,
-               transparent: bool = False, locale: str = "", setup: str = "",
-               nodes: Path | None = None) -> dict[str, Any]:
+# The renders under way, and how long the last ones of each scene took: the
+# window's progress bar estimates a render from its predecessors.
+_running: dict[str, dict[str, Any]] = {}
+_durations: dict[tuple[str, str], list[float]] = {}
+_lock = threading.Lock()
+# Before any render of a scene: what a render of the game usually takes.
+EXPECTED_FIRST = 10.0
+KEPT_DURATIONS = 5
+
+
+def _expected(project: str, scene: str) -> float:
+    found = _durations.get((project, scene))
+    if not found:
+        found = [d for (p, _), ds in _durations.items() if p == project for d in ds]
+    return sum(found) / len(found) if found else EXPECTED_FIRST
+
+
+def running() -> list[dict[str, Any]]:
+    """The renders under way: project, scene, start (epoch s), expected duration (s)."""
+    with _lock:
+        return [dict(entry) for entry in _running.values()]
+
+
+def render_png(target: dict[str, Any], output: Path, **settings: Any) -> dict[str, Any]:
     """Draw a resolved scene (`resolve_scene`) into `output`, filing nothing.
 
     The raw render: no store, no library. `render_scene` files it; the screen
     editor keeps it in its workspace, with the survey of the Controls (`nodes`)
-    that lets one point at them on the image.
+    that lets one point at them on the image. While it runs, it is listed by
+    `running`.
     """
+    project = str(target.get("project") or "")
+    scene = str(target["res_path"])
+    key = uuid.uuid4().hex
+    with _lock:
+        _running[key] = {"project": project, "scene": scene, "started_at": time.time(),
+                         "expected": round(_expected(project, scene), 1)}
+    started = time.monotonic()
+    try:
+        drawn = _render_png(target, output, **settings)
+    finally:
+        with _lock:
+            _running.pop(key, None)
+    with _lock:
+        kept = _durations.setdefault((project, scene), [])
+        kept.append(time.monotonic() - started)
+        del kept[:-KEPT_DURATIONS]
+    return drawn
+
+
+def _render_png(target: dict[str, Any], output: Path, *, scale: float = 2.0,
+                width: int = 0, height: int = 0, delay: float = 0.5, crop: bool = False,
+                transparent: bool = False, locale: str = "", setup: str = "",
+                nodes: Path | None = None) -> dict[str, Any]:
     entry = target["godot"]
     base_w = width or int(entry["display"].get("viewport_width") or 1152)
     base_h = height or int(entry["display"].get("viewport_height") or 648)
@@ -229,7 +276,8 @@ def render_png(target: dict[str, Any], output: Path, *, scale: float = 2.0,
         raise ServiceError(f"image too large: {base_w * scale:.0f} x {base_h * scale:.0f} px (at "
                            f"most {MAX_SIDE} per side)")
     notes: list[str] = []
-    with tempfile.TemporaryDirectory(prefix="gamestudio-render-") as work:
+    with tempfile.TemporaryDirectory(prefix="gamestudio-render-") as work, \
+            preview_data.serving(str(target.get("project") or "")) as preview:
         temp = Path(work)
         args = [f"--gs-scene={target['res_path']}", f"--gs-out={output}",
                 f"--gs-scale={scale}", f"--gs-delay={delay}"]
@@ -243,17 +291,31 @@ def render_png(target: dict[str, Any], output: Path, *, scale: float = 2.0,
             args.append(f"--gs-locale={locale}")
         if nodes is not None:
             args.append(f"--gs-nodes={nodes}")
+        # The project's fake server answers in place of the real one: its setup
+        # runs before the scene exists, and again after the card's own, which
+        # may point the game elsewhere.
+        if preview is not None and setup.strip():
+            setup = f"{setup}\n{preview.setup}"
         if setup.strip():
             helper = temp / "setup.gd"
             helper.write_text(setup_script(setup), encoding="utf-8")
             args.append(f"--gs-setup={helper}")
+        if preview is not None and preview.setup.strip():
+            prepare = temp / "prepare.gd"
+            prepare.write_text(setup_script(preview.setup), encoding="utf-8")
+            args.append(f"--gs-prepare={prepare}")
         engine, log, result = run_engine(target["base"], SCRIPT, args, base_w, base_h,
                                          notes=notes)
+        if preview is not None:
+            notes.append(f"preview data: {len(preview.served)} answer(s)"
+                         + (f", {len(preview.misses)} request(s) without data "
+                            f"({', '.join(preview.misses[:3])})" if preview.misses else ""))
         if result is None or result.group(4) is not None or not output.is_file():
             reason = result.group(4) if result is not None and result.group(4) else \
                 "the engine rendered nothing"
             tail = "\n".join(line for line in log.splitlines()[-12:] if line.strip())
             raise ServiceError(f"cannot render {target['res_path']}: {reason}\n{tail}")
+    preview_data.after_render(str(target.get("project") or ""), preview)
     return {"engine": engine, "width": int(result.group(2)),
             "height": int(result.group(3)), "notes": notes}
 

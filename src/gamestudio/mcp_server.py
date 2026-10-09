@@ -48,6 +48,7 @@ from .service import (
     forge,
     handoff,
     images,
+    influences,
     jobs,
     library,
     meshes,
@@ -69,6 +70,12 @@ from .service import (
 from .service import inbox as inbox_service
 from .service import (
     lookdev as lookdev_service,
+)
+from .service import (
+    preview_data as preview_data_service,
+)
+from .service import (
+    screen_comments as screen_comments_service,
 )
 from .service import (
     trash as trash_service,
@@ -484,7 +491,7 @@ def list_skills() -> list[dict[str, Any]]:
     is done** -- not what a tool does, the tool descriptions cover that.
     Start with `production-routing`, which routes to the others.
 
-    `vendored: true` marks third-party material (see `THIRD_PARTY_NOTICES.md`):
+    `vendored: true` marks third-party material (see `docs/THIRD_PARTY_NOTICES.md`):
     it is not maintained here.
     """
     return skills.skills()
@@ -809,15 +816,18 @@ def lookdev_specimen(project: str, specimen: str) -> dict[str, Any]:
 @tool
 def lookdev_look(project: str, specimen: str, params: dict[str, Any] | None = None,
                  preset: str = "", shape: str = "", yaw: float = 25.0, pitch: float = 12.0,
-                 zoom: float = 1.0):  # no annotation: a text, then the image
+                 zoom: float = 1.0, device: str = ""):  # no annotation: a text, then the image
     """Look at a specimen, rendered by Godot with these settings. FREE, local.
 
     `preset`: a use in the game (`lookdev_specimen` lists them), `default` for
     the shader alone; `params`: extra settings ({"tint": [1, 0.8, 0.4, 1]}).
     `yaw`/`pitch`/`zoom` turn the camera around a material, an object, a sky.
+    `device` (`phone`, `tablet`, `desktop`): the whole screen of that device --
+    an interface shader in the scene of its use, where the game places it.
     """
     shot = lookdev_service.frame(project, specimen, params=params, preset=preset, shape=shape,
-                         yaw=yaw, pitch=pitch, zoom=zoom, scale=1.0, format="webp")
+                         yaw=yaw, pitch=pitch, zoom=zoom, scale=1.0, format="webp",
+                         device=device)
     png = images.webp_to_png(shot["image"], _MAX_PREVIEW)
     return [{"specimen": specimen, "width": shot["width"], "height": shot["height"],
              "ms": shot["ms"]}, McpImage(data=png, format="png")]
@@ -861,6 +871,67 @@ def lookdev_brief(project: str, specimen: str) -> dict[str, Any]:
     wait for the request. Free.
     """
     return handoff.lookdev_brief(project, specimen)
+
+
+@tool
+def lookdev_aspect_brief(project: str, aspect: str) -> dict[str, Any]:
+    """The brief of a chat about a whole section of the universe, written and returned.
+
+    `aspect`: `colors`, `typography`, or a family of shaders (`interface`,
+    `materials`, `sky`, `other`). It is what the agent opened from a section's
+    bubble receives: what the game holds for it, with where each thing is
+    written (a color's files and names, a font's files and uses), and the
+    written art direction by path. Read it, say what you see, then wait for
+    the request. Free.
+    """
+    return handoff.lookdev_aspect_brief(project, aspect)
+
+
+@tool
+def influence_board(project: str, aspect: str) -> dict[str, Any]:
+    """The graphic style (`aspect="style"`) or the game type (`aspect="game"`): its
+    parts' cards (`parts`: the graphic style's `graphic-style`; the game type's
+    `gameplay`, `setting`, `lore`), each influence with what is kept and left and its
+    images (each with its `path`, to look at it), the image proposals and their
+    status. Free.
+    """
+    return influences.board(project, aspect)
+
+
+@tool
+def influence_set(project: str, aspect: str, name: str, influence: str = "", kind: str = "",
+                  keep: str | None = None, avoid: str | None = None,
+                  of: list[str] | None = None,
+                  images: list[str] | None = None) -> dict[str, Any]:
+    """Name an influence of the graphic style or the game type, or change one. Free.
+
+    `influence`: the id of the one to change, empty to add one. `kind`: work,
+    game, film, book, artist, movement, place, blend (`of`: the ids it
+    crosses) or other. `keep` / `avoid`: what is kept from it, what is left.
+    `images` replaces its images: `asset:<id>` (generated for the aspect's
+    card), `ref:<file>` (dropped with it). What is not given is kept.
+    """
+    return influences.set_influence(project, aspect, name=name, influence=influence, kind=kind,
+                                    keep=keep, avoid=avoid, of=of, images=images)
+
+
+@tool
+def influence_propose(project: str, aspect: str, prompt: str, influence: str = "", count: int = 4,
+                      model: str = influences.DEFAULT_MODEL, width: int = 1024,
+                      height: int = 768, reference: str = "", strength: float = 0.6,
+                      why: str = "") -> dict[str, Any]:
+    """Propose images that make an influence visible -- or the aspect as a whole
+    (`influence=""`: they go to its gallery). FREE: nothing is generated.
+
+    The user sees the proposal in the Universe with its amount and pays it, or
+    not; an agent never pays it. `model`: runware:100@1 (FLUX schnell, ~$0.0013
+    an image, to explore), runware:101@1 (FLUX dev, ~$0.006), runware:106@1
+    (Kontext, ~$0.04, only with `reference="ref:<file>"`, a dropped image).
+    `count`: 1 to 4. `why`: one line, shown with it.
+    """
+    return influences.propose(project, aspect, influence=influence, prompt=prompt, count=count,
+                              model=model, width=width, height=height, reference=reference,
+                              strength=strength, why=why)
 
 
 # ----------------------------------------------------- the icon and prop showcase
@@ -1078,8 +1149,9 @@ def screen_state(project: str, folder: str, name: str, look: bool = False):
     `folder`: `design/interface` (a screen) or `design/props` (a button, an
     arrow, a frame, rendered alone and cropped). The scene is edited on a git
     branch of its own (`studio/screen-<card>`, `studio/prop-<card>`), in a copy
-    of the game under `.gamestudio/workspace/`: the user's copy does not move,
-    and they merge the branch when the screen suits them. `nodes`: the visible
+    of the game under `.gamestudio/workspace/`, made by the first edit: the
+    user's copy does not move, and they merge the branch when the screen suits
+    them. `opened`: whether that branch exists yet. `nodes`: the visible
     Controls, their path, type, rectangle in preview pixels, and whether they
     are declared by this scene (`editable`) or another (`shared`: editing them
     also changes the other screens). `look=true` shows the preview. Free.
@@ -1090,18 +1162,20 @@ def screen_state(project: str, folder: str, name: str, look: bool = False):
 @tool
 def screen_open(project: str, folder: str, name: str, scene: str = "",
                 look: bool = False):
-    """Open a card's screen for editing: branch, game copy, first render. FREE.
+    """Show a card's screen, ready to edit: its render and its elements. FREE.
 
-    `scene`: `res://…` or a path from the game root; by default the one of the
-    card's current render (`screen_state` lists the game's screens). A branch
-    already open is resumed as is. Refused outside a git repository.
+    `scene`: `res://…` or a path from the game root; by default the one shown,
+    else the card's current render's (`screen_state` lists the game's
+    screens). Creates nothing: the first `screen_edit` makes the branch (and
+    is refused while the game has uncommitted changes). Refused outside a git
+    repository.
     """
     return _screen_view(screens.open_screen(project, folder, name, scene), look)
 
 
 @tool
 def screen_render(project: str, folder: str, name: str, look: bool = False):
-    """Redraw the screen from its branch (after a change made by hand). FREE."""
+    """Redraw the screen: from its branch, or from the game before the first edit. FREE."""
     return _screen_view(screens.render(project, folder, name), look)
 
 
@@ -1123,11 +1197,60 @@ def screen_edit(project: str, folder: str, name: str, path: str,
 
     `changes`: `{key: value}` among those of `screen_node` -- text, number,
     boolean, colour `#rrggbb[aa]`, vector `[x, y]`, image `res://…`; `null`
-    restores the default value. Each edit is a commit on the branch; a scene
+    restores the default value. Each edit is a commit on the branch (the first
+    one creates it); a scene
     that no longer draws is returned as it was. Look at the screen afterwards
     (`look=true`).
     """
     return _screen_view(screens.edit(project, folder, name, path, changes), look)
+
+
+@tool
+def screen_comments(project: str, folder: str, name: str) -> dict[str, Any]:
+    """The user's comments on a screen's elements: what they want of each one. Free.
+
+    Each: `id`, the element (`path`, `name`, `type`, `file`), `text`, and
+    `state` -- `saved` (kept), `queued` (waiting for the screen's agent),
+    `sent` (the agent is on it), `done`. `session`: the screen agent's tab.
+    """
+    return screen_comments_service.comments(project, folder, name)
+
+
+@tool
+def screen_comment_add(project: str, folder: str, name: str, path: str,
+                       text: str) -> dict[str, Any]:
+    """Save a comment on a screen element (`path`, from `screen_state`). Free.
+
+    Saved, not sent: the user sends comments to the screen's agent from the
+    editor.
+    """
+    return screen_comments_service.add(project, folder, name, path, text)
+
+
+@tool
+def preview_data(project: str) -> dict[str, Any]:
+    """A networked game's preview data: fake server answers for the studio's renders. Free.
+
+    `enabled`, the `routes` written, the `setup` that points the game at the
+    fake server, the `misses` of the last render, and the files' `paths`.
+    """
+    return preview_data_service.state(project)
+
+
+@tool
+def preview_data_brief(project: str) -> dict[str, Any]:
+    """Write the brief to fill a game's preview data, and return it. Free.
+
+    For a game whose screens need a server: the agent writes fake answers from
+    the game's code and docs, then renders to check.
+    """
+    return handoff.preview_brief(project)
+
+
+@tool
+def preview_data_enable(project: str, enabled: bool) -> dict[str, Any]:
+    """Turn the preview data on or off (off: renders reach the real server). Free."""
+    return preview_data_service.set_enabled(project, enabled)
 
 
 @tool
@@ -1808,10 +1931,38 @@ HUMAN_ONLY: dict[str, str] = {
     "forge.image_file": "serves the images to the page; an agent looks through `forge_look`",
     "handoff.send_lookdev": "opens a tab in the Chats window; the agent reads "
                             "`lookdev_brief`",
+    "handoff.send_lookdev_aspect": "opens a tab in the Chats window; the agent reads "
+                                   "`lookdev_aspect_brief`",
+    "influences.remove_influence": "taking an influence off the board is the user's gesture",
+    "influences.remove_image": "taking an image off an influence deletes a dropped one: the "
+                               "user's gesture; an agent rearranges with `influence_set(images=…)`",
+    "influences.add_reference": "dropping a file is the user's gesture; an agent files an "
+                                "image with `card_reference_add`, then `influence_set(images=…)`",
+    "influences.add_reference_file": "dropping a file is the user's gesture (the shell gives "
+                                     "its path); an agent uses `card_reference_add`",
+    "influences.pay": "the user pays a proposal in the Universe; an agent proposes "
+                      "(`influence_propose`) and never pays",
+    "influences.dismiss": "the user's answer to a proposal",
+    "direction_chat.stop_all": "server shutdown: no agent answering in the Universe outlives it",
+    "direction_chat.draft": "the user asks a model to look at the influences' images and write "
+                            "a prompt; an agent looks itself, then `influence_propose`",
+    "direction_chat.thread": "the user's own conversation in the Universe; an agent works on "
+                             "the board through `influence_board`",
+    "direction_chat.send": "the user's own conversation, with the agent the studio drives",
+    "direction_chat.stop": "the user's own conversation",
+    "direction_chat.reset": "the user's own conversation",
     "handoff.send_showcase": "opens a tab in the Chats window; the agent reads "
                              "`showcase_brief`",
     "showcase.image_file": "serves the image to the page; an agent looks through "
                            "`showcase_look`",
+    "screens.warm": "the window draws a section's screens ahead of the user; an agent "
+                    "draws the one it works on with `screen_open`",
+    "activity.now": "the window's progress bar; an agent knows what it runs itself",
+    "handoff.send_preview": "opens a tab in the Chats window; the agent reads "
+                            "`preview_data_brief`",
+    "screen_comments.send": "opens or types into a tab of the Chats window; the agent "
+                            "reads the comments through `screen_comments`",
+    "screen_comments.remove": "removing the user's comments is their gesture",
     "screens.preview_file": "serves the preview to the page; an agent looks through "
                             "`screen_state(look=true)`",
     "cards.save_sketch": "the sketch is drawn by hand in the card's editor; an agent "

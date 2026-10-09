@@ -20,7 +20,9 @@ import { useState, type ReactNode } from "react";
 import { assetFileUrl, documentImageUrl, type CardRender, type ProjectDocument } from "../api";
 import { inTauri } from "../lib/host";
 import { useReveal } from "../lib/paths";
-import { useAddCardReferences, useCardMedia, useRerenderCard } from "../lib/queries";
+import {
+  useAddCardReferences, useCardMedia, useRerenderCard, useWarmScreens,
+} from "../lib/queries";
 import {
   ChatPlusGlyph, DeleteButton, DraftText, EditGestures, useDocumentDraft,
 } from "../pages/Documents";
@@ -36,7 +38,8 @@ type Visual = "render" | "edit" | "sketch" | "references" | "generate";
 
 const VISUALS: { value: Visual; label: string }[] = [
   { value: "render", label: t("Current render") },
-  // An Interface or Props card is a scene: it can be edited (`ScreenEditor`).
+  // An Interface or Props card is a scene: it is edited on its render
+  // (`ScreenEditor`), which replaces the render tab.
   { value: "edit", label: t("Edit") },
   { value: "sketch", label: t("Sketch") },
   { value: "references", label: t("References") },
@@ -97,7 +100,11 @@ export default function CardWorkspace({
   const media = useCardMedia(project, folder, name);
   const [chosen, setVisual] = useVisual();
   const screen = SCREEN_FOLDERS.includes(folder);
-  const visual: Visual = chosen === "edit" && !screen ? "render" : chosen;
+  // The section's other screens are drawn meanwhile: no click per card.
+  useWarmScreens(project, folder, screen);
+  const visual: Visual = screen
+    ? (chosen === "render" ? "edit" : chosen)
+    : (chosen === "edit" ? "render" : chosen);
   const addReferences = useAddCardReferences();
   const reveal = useReveal();
   // An image dropped on the render or the generation joins the references;
@@ -173,7 +180,7 @@ export default function CardWorkspace({
           <Seg<Visual>
             value={visual}
             onChange={setVisual}
-            options={VISUALS.filter((entry) => screen || entry.value !== "edit").map((entry) => entry.value === "references" && ready?.references.length
+            options={VISUALS.filter((entry) => entry.value !== (screen ? "render" : "edit")).map((entry) => entry.value === "references" && ready?.references.length
               ? { ...entry, label: t("References · {length}", { length: ready.references.length }) }
               : entry)}
           />

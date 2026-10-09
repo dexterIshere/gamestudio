@@ -69,13 +69,18 @@ def _write(project: str, filename: str, text: str) -> Path:
 
 
 def _dispatch(project: str, prompt: str, title: str, *, harness: str, effort: str,
-              session: str, loop: Any, cwd: Path | None = None) -> dict[str, Any]:
+              session: str, loop: Any, message: str = "",
+              cwd: Path | None = None) -> dict[str, Any]:
     """Type the line pointing to the brief into `session`, or into a new tab.
 
+    `message` is what the user wrote in the handoff dialog: it follows the
+    line, so the agent reads the brief with the user's request in hand.
     A new discussion opens in the project's folder (the studio root for a
     project without a folder), like those of the Chats window -- or in `cwd`,
     for work that belongs to no project.
     """
+    if message.strip():
+        prompt = f"{prompt}\n\nThe user's message: {message.strip()}"
     if session:
         return manager.type_in(session, prompt)
     root = cwd or project_paths(studio().settings, project).root
@@ -157,14 +162,14 @@ the report.
 
 
 def send(project: str, name: str, *, harness: str = DEFAULT, effort: str = "",
-         session: str = "", loop: Any = None) -> dict[str, Any]:
+         session: str = "", message: str = "", loop: Any = None) -> dict[str, Any]:
     """Hand the concept to an agent: a new discussion, or `session`."""
     sent = brief(project, name)
     if not sent["godot_ready"]:
         raise ServiceError(f"no Godot project in {sent['godot']}: open the game folder as a "
                            "studio project, or create project.godot in it")
     tab = _dispatch(project, sent["prompt"], f"VFX · {sent['title']}", harness=harness,
-                    effort=effort, session=session, loop=loop)
+                    effort=effort, session=session, message=message, loop=loop)
     return {**{key: value for key, value in sent.items() if key != "text"}, "session": tab}
 
 
@@ -329,11 +334,12 @@ the skill `{skills / 'animation' / 'SKILL.md'}`.
 
 
 def send_animation(project: str, section: str, name: str, *, harness: str = DEFAULT,
-                   effort: str = "", session: str = "", loop: Any = None) -> dict[str, Any]:
+                   effort: str = "", session: str = "",
+                   message: str = "", loop: Any = None) -> dict[str, Any]:
     """Hand a card's rig and animations to an agent: a new tab, or `session`."""
     sent = animation_brief(project, section, name)
     tab = _dispatch(project, sent["prompt"], f"Anim · {sent['title']}", harness=harness,
-                    effort=effort, session=session, loop=loop)
+                    effort=effort, session=session, message=message, loop=loop)
     return {**{key: value for key, value in sent.items() if key != "text"}, "session": tab}
 
 
@@ -998,7 +1004,8 @@ image, a new render — through `card_brief({call})`.
 
 
 def send_card(project: str, folder: str, name: str, *, harness: str = DEFAULT,
-               effort: str = "", session: str = "", loop: Any = None) -> dict[str, Any]:
+               effort: str = "", session: str = "",
+               message: str = "", loop: Any = None) -> dict[str, Any]:
     """Open an agent discussion on a card: a new tab, or `session`.
 
     Nothing requires a Godot project: a mechanic is discussed without a game.
@@ -1006,7 +1013,7 @@ def send_card(project: str, folder: str, name: str, *, harness: str = DEFAULT,
     """
     sent = card_brief(project, folder, name)
     tab = _dispatch(project, sent["prompt"], f"{sent['section_label']} · {sent['title']}",
-                    harness=harness, effort=effort, session=session, loop=loop)
+                    harness=harness, effort=effort, session=session, message=message, loop=loop)
     return {**{key: value for key, value in sent.items() if key != "text"}, "session": tab}
 
 
@@ -1171,11 +1178,12 @@ A CLI that does not read image files sees them through `showcase_look({call})`.
 
 
 def send_showcase(project: str, kind: str, element: str, *, harness: str = DEFAULT,
-                  effort: str = "", session: str = "", loop: Any = None) -> dict[str, Any]:
+                  effort: str = "", session: str = "",
+                  message: str = "", loop: Any = None) -> dict[str, Any]:
     """Open an agent discussion on a showcase element: a new one, or `session`."""
     sent = showcase_brief(project, kind, element)
     tab = _dispatch(project, sent["prompt"], f"{sent['section_label']} · {sent['title']}",
-                    harness=harness, effort=effort, session=session, loop=loop)
+                    harness=harness, effort=effort, session=session, message=message, loop=loop)
     return {**{key: value for key, value in sent.items() if key != "text"}, "session": tab}
 
 
@@ -1288,11 +1296,222 @@ a few tens of milliseconds.
 
 
 def send_lookdev(project: str, specimen: str, *, harness: str = DEFAULT, effort: str = "",
-                 session: str = "", loop: Any = None) -> dict[str, Any]:
+                 session: str = "", message: str = "", loop: Any = None) -> dict[str, Any]:
     """Open an agent discussion on a lookdev shader: a new one, or `session`."""
     sent = lookdev_brief(project, specimen)
     tab = _dispatch(project, sent["prompt"], f"Universe · {sent['title']}",
-                    harness=harness, effort=effort, session=session, loop=loop)
+                    harness=harness, effort=effort, session=session, message=message, loop=loop)
+    return {**{key: value for key, value in sent.items() if key != "text"}, "session": tab}
+
+
+# ------------------------------------- an aspect of the art direction, discussed
+
+# The Universe's sections a discussion can be on as a whole: its title, what it is about.
+LOOKDEV_ASPECTS = {"colors": ("Colors", "the game's colors"),
+                   "typography": ("Typography", "the game's typography"),
+                   "interface": ("Interface shaders", "the interface shaders"),
+                   "materials": ("Material shaders", "the material shaders"),
+                   "sky": ("Sky shaders", "the sky shaders"),
+                   "other": ("Other shaders", "the other shaders")}
+COLOR_ASPECTS = {"interface": "Interface", "materials": "Materials and 3D world",
+                 "sky": "Sky and environment", "other": "Elsewhere (logic, 2D)"}
+# The colors the colors section holds: a material's colors are discussed with
+# the material shaders, as the Universe shows them.
+PALETTE_ASPECTS = ("interface", "sky", "other")
+# What a brief cites: beyond this, `lookdev` gives the whole of it.
+MAX_BRIEF_COLORS = 24
+MAX_BRIEF_USES = 4
+MAX_BRIEF_SHADERS = 24
+
+
+def _color_lines(palette: dict[str, Any], only: str = "") -> list[str]:
+    """The palette in a brief, aspect by aspect: each color with where it is written."""
+    lines: list[str] = []
+    for aspect in (only,) if only else PALETTE_ASPECTS:
+        held = sorted((color for color in palette["colors"] if color["aspects"].get(aspect)),
+                      key=lambda color: -color["aspects"][aspect])
+        if not held:
+            continue
+        if not only:
+            lines += [f"### {COLOR_ASPECTS[aspect]} — {len(held)} color(s)", ""]
+        for color in held[:MAX_BRIEF_COLORS]:
+            uses = [use for use in color["uses"] if use["aspect"] == aspect]
+            where = ", ".join(
+                f"`{use['file']}`" + (f" ({', '.join(use['names'])})" if use["names"] else "")
+                + (f" x{use['count']}" if use["count"] > 1 else "")
+                for use in uses[:MAX_BRIEF_USES])
+            if len(uses) > MAX_BRIEF_USES:
+                where += f", and {len(uses) - MAX_BRIEF_USES} more file(s)"
+            lines.append(f"- `{color['hex']}` x{color['aspects'][aspect]} — {where}")
+        if len(held) > MAX_BRIEF_COLORS:
+            lines.append(f"- … and {len(held) - MAX_BRIEF_COLORS} more (`lookdev` → `palette`)")
+        lines.append("")
+    return lines or ["- none written literally: the game computes them, or has none.", ""]
+
+
+def _type_lines(typography: dict[str, Any], root: Path) -> list[str]:
+    """The typography in a brief: families and faces, default font, resources, sizes, texts."""
+    lines = ["### Families", ""]
+    for family in typography["families"]:
+        lines.append(f"- **{family['family']}**")
+        for face in family["faces"]:
+            role = "default font" if face["default"] else (
+                "cited nowhere" if not face["uses"] else f"{face['uses']} use(s)")
+            lines.append(f"  - {face['style']} {face['weight']}"
+                         + (" italic" if face["italic"] else "")
+                         + f" — `{root / face['file']}` — {role}")
+    if not typography["families"]:
+        lines.append("- no font file: the game uses Godot's default font.")
+    default = typography["default"]
+    lines += ["", "### Default font", "",
+              f"- `{default['resource'] or default['base']}`"
+              + (f" — built on `{default['base']}`" if default["resource"] and default["base"]
+                 else "") + (f", size {default['size']}" if default["size"] else "")
+              if default["resource"] or default["base"] else
+              "- none declared (`[gui] theme/custom_font` or a theme's `default_font`)."]
+    if typography["resources"]:
+        lines += ["", "### Font resources", ""]
+        for resource in typography["resources"]:
+            facts = [resource["type"]]
+            if resource["base"]:
+                facts.append(f"base `{resource['base']}`")
+            if resource["fallbacks"] or resource["system"]:
+                facts.append("fallbacks " + " → ".join(resource["system"] + resource["fallbacks"]))
+            if resource["features"]:
+                facts.append("OpenType " + ", ".join(f"{feature['tag']}={feature['value']}"
+                                                     for feature in resource["features"]))
+            facts += [f"{key}={value}" for key, value in resource["settings"].items()]
+            lines.append(f"- `{resource['file']}` — {'; '.join(facts)}")
+    if typography["sizes"]:
+        lines += ["", "### Sizes set by the game", "",
+                  "- " + ", ".join(f"{size['size']} px x{size['count']}"
+                                   for size in typography["sizes"])]
+    if typography["samples"]:
+        lines += ["", "### Texts the game shows", "",
+                  "- " + " · ".join(f"“{sample}”" for sample in typography["samples"][:12])]
+    return [*lines, ""]
+
+
+def lookdev_aspect_brief(project: str, aspect: str) -> dict[str, Any]:
+    """Write the brief of a discussion on a whole section of the Universe.
+
+    `aspect`: `colors`, `typography`, or a family of shaders (`interface`,
+    `materials`, `sky`, `other`). Not one element: the section as a whole --
+    a palette's harmony, a type system, how the interface shaders agree. The
+    brief cites what the game holds for it, read from its files, with where
+    each thing is written; the written art direction is cited by path.
+    """
+    from . import colors, fonts, lookdev
+
+    if aspect not in LOOKDEV_ASPECTS:
+        raise NotFound(f"unknown aspect: {aspect} (known: {', '.join(LOOKDEV_ASPECTS)})")
+    root, game, found = lookdev._specimens(project)
+    title, subject = LOOKDEV_ASPECTS[aspect]
+    call = f'project="{project}", aspect="{aspect}"'
+    when = datetime.now().strftime("%Y-%m-%d %H:%M")
+    cards = [f"- `{entry['path']}` — {entry['title']}"
+             for entry in documents.documents(project, "design/direction")]
+    branch = f"studio/lookdev-{aspect}"
+
+    if aspect == "colors":
+        palette = colors.palette(root, game)
+        held = [color for color in palette["colors"]
+                if any(color["aspects"].get(aspect) for aspect in PALETTE_ASPECTS)]
+        body = (f"{len(held)} color(s) for the interface, the sky and the rest of the game, the "
+                "most used first; a material's colors are discussed with the material shaders. "
+                "Each color says where it is written: the file, then the names carrying it (a "
+                "property, a theme key, a constant, a shader setting).\n\n"
+                + "\n".join(_color_lines(palette)))
+        seeing = ("- The whole palette, every use included: `lookdev` → `palette`.\n"
+                  "- A screen or a level with its colors: `render_scene`, drawn by the "
+                  "game's engine.")
+        change = ("A color changed is changed everywhere it is written (its uses list them), "
+                  "or turned into one named constant or theme key at the user's request.")
+    elif aspect == "typography":
+        body = "\n".join(_type_lines(fonts.typography(root, game), root))
+        seeing = ("- The faces, sizes and resources: `lookdev` → `typography`.\n"
+                  "- A screen set in its type: `render_scene`, drawn by the game's engine.")
+        change = ("A font is added to the game as a file with its licence; the default font "
+                  "is changed where the project declares it, never node by node.")
+    else:
+        shown = [entry for entry in found if colors.shader_aspect(entry["kind"]) == aspect]
+        listed = [f"- **{entry['title']}** — `{root / entry['file']}` "
+                  f"({SHADER_KINDS.get(entry['kind'], entry['kind'])}, "
+                  f"{entry['uniforms']} setting(s)) — used by "
+                  + (", ".join(f"`{user}`" for user in entry["users"][:MAX_BRIEF_USES])
+                     + (f" and {len(entry['users']) - MAX_BRIEF_USES} more"
+                        if len(entry["users"]) > MAX_BRIEF_USES else "")
+                     if entry["users"] else "nothing the game map can see")
+                  + f" — `lookdev_brief(project=\"{project}\", specimen=\"{entry['id']}\")`"
+                  for entry in shown[:MAX_BRIEF_SHADERS]]
+        if len(shown) > MAX_BRIEF_SHADERS:
+            listed.append(f"- … and {len(shown) - MAX_BRIEF_SHADERS} more (`lookdev`)")
+        body = ("\n".join(listed or ["- none in the game."])
+                + "\n\n### Their colors\n\n"
+                + "\n".join(_color_lines(colors.palette(root, game), aspect)))
+        seeing = ("- Each shader live, on its uses, from any angle: `lookdev_look(project=…, "
+                  "specimen=…, preset=…)` — rendered by Godot itself.\n"
+                  "- Each shader in detail (settings, uses): `lookdev_specimen`.")
+        change = ("Setting values to keep are written with `lookdev_save`, like the Universe's "
+                  "\"Save\"; a shader's code is reworked like the rest.")
+
+    text = f"""# Brief — discussion on {subject} (art direction)
+
+Project: `{project}` · Universe (lookdev) · written {when}
+
+A working discussion on a whole section of the art direction, not on one
+element and not a mission to finish alone: the user is looking at {subject}
+in the game's Universe and wants to talk about the section as a whole —
+what it says, whether it holds together, what to change. The Universe holds no
+verdict: what is in the game is kept, what is no longer wanted leaves it.
+This brief is reread up to date through `lookdev_aspect_brief({call})`.
+
+## What the game holds
+
+Game folder: `{root}`
+
+{body}
+## The written art direction
+
+{chr(10).join(cards) if cards else "- no card yet in `design/direction`."}
+
+The game's own docs are authoritative: cite them, never copy them.
+
+## Seeing it
+
+{seeing}
+
+## What you do
+
+1. Read what is above, open the files that matter, and say in three or four
+   lines what you see: what holds the section together, what stands out,
+   what contradicts the written art direction. Then wait for the request.
+2. The game is only changed at the user's request, on a separate branch
+   (`{branch}`) that they will merge. {change} After the change, look at
+   the result before saying it is done, and validate the scenes concerned
+   (headless Godot).
+
+## Rules
+
+- Nothing paid without the user's explicit consent in the discussion.
+- A contradiction between the game and the written art direction is raised
+  as a question to the user; it is not settled alone.
+"""
+    path = _write(project, f"lookdev-aspect-{aspect}.md", text)
+    prompt = (f"We are looking at {subject} in the Universe of project {project}: read the "
+              f"brief {path}, tell me in a few lines what you see, then wait for my request.")
+    return {"project": project, "aspect": aspect, "title": title,
+            "section_label": "Art direction", "path": str(path), "text": text,
+            "prompt": prompt, "godot": str(root)}
+
+
+def send_lookdev_aspect(project: str, aspect: str, *, harness: str = DEFAULT, effort: str = "",
+                        session: str = "", message: str = "",
+                        loop: Any = None) -> dict[str, Any]:
+    """Open an agent discussion on a whole section of the Universe: new, or `session`."""
+    sent = lookdev_aspect_brief(project, aspect)
+    tab = _dispatch(project, sent["prompt"], f"Universe · {sent['title']}",
+                    harness=harness, effort=effort, session=session, message=message, loop=loop)
     return {**{key: value for key, value in sent.items() if key != "text"}, "session": tab}
 
 
@@ -1510,13 +1729,13 @@ Project: `{project}` · section `{where or '(root)'}` · written {when:%Y-%m-%d 
 def send_create(project: str, folder: str, request: str, *, images: list[str] | None = None,
                 names: list[str] | None = None, axes: dict[str, str] | None = None,
                 harness: str = DEFAULT, effort: str = "",
-                session: str = "", loop: Any = None) -> dict[str, Any]:
+                session: str = "", message: str = "", loop: Any = None) -> dict[str, Any]:
     """Hand a creation in a section to an agent: a new tab, or `session`."""
     sent = create_brief(project, folder, request, images, names, axes)
     group = " · ".join(entry["value_label"] for entry in sent["axes"])
     tab = _dispatch(project, sent["prompt"],
                     f"{sent['section_label']}{f' · {group}' if group else ''} · new",
-                    harness=harness, effort=effort, session=session, loop=loop)
+                    harness=harness, effort=effort, session=session, message=message, loop=loop)
     return {**{key: value for key, value in sent.items() if key != "text"}, "session": tab}
 
 
@@ -1611,12 +1830,113 @@ beats a duplicate.
 
 
 def send_skill(request: str, *, harness: str = DEFAULT, effort: str = "",
-               session: str = "", loop: Any = None) -> dict[str, Any]:
+               session: str = "", message: str = "", loop: Any = None) -> dict[str, Any]:
     """Hand the writing of a skill to an agent: a new tab, or `session`.
 
     The new tab opens at the studio root: that is where the skills live.
     """
     sent = skill_brief(request)
     tab = _dispatch("", sent["prompt"], "Procedure", harness=harness, effort=effort,
-                    session=session, loop=loop, cwd=Path(sent["root"]))
+                    session=session, message=message, loop=loop, cwd=Path(sent["root"]))
+    return {**{key: value for key, value in sent.items() if key != "text"}, "session": tab}
+
+
+# ------------------------------------------------- preview data of a game
+
+
+def preview_brief(project: str) -> dict[str, Any]:
+    """Write the brief of the agent that fills a game's preview data.
+
+    A networked game renders empty screens off line; the studio serves fake
+    answers during its renders (`service/preview_data.py`). The agent writes
+    them from the game's own code and docs, then renders to check.
+    """
+    from . import preview_data
+
+    paths = project_paths(studio().settings, project)
+    if not paths.linked:
+        raise ServiceError(f"project {project} has no game folder: no preview data to write")
+    current = preview_data.state(project)
+    files = current["paths"]
+    root = paths.root
+    misses = current["misses"]
+    gaps = ("\n".join(f"  - `{miss}`" for miss in misses[:20]) if misses
+            else "  - none recorded yet")
+    have = (f"{len(current['routes'])} route(s) already written: complete them, do not start "
+            "over." if current["routes"] else "Nothing written yet.")
+    text = f"""# Preview data of the game `{project}`
+
+The studio draws the game's screens off line, with its own engine (`render_scene`,
+the screen editor, the cards' renders). This game needs a server for its
+content: without one, its screens say “server unreachable” and show nothing.
+You write the **fake answers of its server**, which the studio serves during
+each render, and nothing else. {have}
+
+The studio called you by itself: the game's code talks to a server
+({", ".join(f"`{f}`" for f in current["networked"]) or "its network classes"}), and a render
+lacked data. It calls you again when a later render lacks other data.
+
+## The files (the studio's, never the game's)
+
+- `{files['server']}` -- `{{"enabled": true, "routes": [...]}}`; a route is
+  `{{"method": "GET", "path": "/api/planet/*", "status": 200, "body": {{...}}}}`.
+  `*` matches one path segment, `**` the rest; the query is ignored; the first
+  route that matches answers.
+- `{files['setup']}` -- GDScript, the body of a `setup(scene)` function run
+  **before the scene exists** (`scene` is null: only autoloads are there), then
+  again after the card's own setup. `{preview_data.PLACEHOLDER}` is the fake server's
+  address. Typically: the client's base URL, a session token, the player's ids
+  -- whatever makes the screens ask for their content. It must compile against
+  the game's last commit too (the screen editor renders that branch).
+- `{files['misses']}` -- what the last render asked without an answer.
+  Last recorded:
+{gaps}
+
+## Procedure
+
+1. Read how the game talks to its server: the autoloads of `project.godot`,
+   its HTTP client (base URL, headers, session), each request and what the
+   screens read from the answer. If the server is in the repository
+   (`{root}`), its routes and types are the reference for the shapes; the
+   game's docs and the studio's cards (`list_documents`) say what the world
+   contains. They are read, never copied whole.
+2. Write `setup.gd`, then the routes the main screens need. The data is
+   plausible and consistent with the game: real names of the world, numbers
+   in their ranges, enough items to fill a list -- not placeholders.
+3. Render and look: `render_scene(project="{project}", scene=…)` for each
+   screen that needs data; its notes say how many answers were served and
+   which requests had none (`misses.json`). Complete, render again, until the
+   screens are full. A render not looked at has proved nothing.
+4. Say which screens are now full and which still lack data, then stop.
+
+## Rules
+
+- Nothing is written into the game, and no real server is started.
+- Free and local: no paid call.
+- If the game's screens do not need its server after all (the network code
+  serves something else: an update check, analytics), write
+  `{{"enabled": false, "auto": false, "routes": []}}` in `server.json`, say why,
+  and stop: the studio will not call you again.
+"""
+    path = _write(project, "preview-data.md", text)
+    prompt = (f"Fill the preview data of project {project}: read the brief {path} and "
+              "follow it to the end.")
+    return {"project": project, "path": str(path), "text": text, "prompt": prompt,
+            "godot": str(root), "routes": len(current["routes"]), "misses": misses}
+
+
+def send_preview(project: str, *, harness: str = DEFAULT, effort: str = "",
+                 session: str = "", message: str = "", loop: Any = None,
+                 gaps: list[str] | None = None) -> dict[str, Any]:
+    """Hand the preview data of a game to an agent: a new tab, or `session`.
+
+    `gaps`: what the render lacked, when the studio calls the agent by itself.
+    """
+    from . import preview_data
+
+    sent = preview_brief(project)
+    tab = _dispatch(project, sent["prompt"], f"Preview data · {project}", harness=harness,
+                    effort=effort, session=session, message=message, loop=loop)
+    preview_data.remember_agent(project, tab["id"], gaps if gaps is not None
+                                else sorted(sent["misses"]))
     return {**{key: value for key, value in sent.items() if key != "text"}, "session": tab}

@@ -156,6 +156,123 @@ TEMPLATES: dict[str, dict[str, str]] = {
 - **…** — why
 """,
     },
+    # The graphic style and the game type lead the art direction: their cards
+    # are shown and written in the Universe (`service/influences.py`).
+    "style": {
+        "label": "Graphic style",
+        "body": """\
+# {title}
+
+<!-- One sentence: how the game draws, and what it gives off. -->
+
+## Rendering
+
+<!-- Technique: 2D or 3D; painted, cel-shaded, low poly, pixel art, toy-like, realistic… -->
+
+- **Technique** —\x20
+- **Shapes and proportions** —\x20
+- **Outline** —\x20
+- **Light and shadow** —\x20
+- **Matter and detail** —\x20
+- **Camera** —\x20
+
+## In the game
+
+- **…** — where to see it: scene, shader, file
+
+## To avoid
+
+- **…** — why
+""",
+    },
+    "gameplay": {
+        "label": "Gameplay style",
+        "body": """\
+# {title}
+
+<!-- One sentence: what the player does, and what brings them back. -->
+
+## The game
+
+<!-- Genre: strategy, MMO, roguelike, management, puzzle, action, narrative… -->
+
+- **Genre** —\x20
+- **The loop** — what the player does, minute by minute
+- **Pace and sessions** — how long a session lasts, how often one comes back
+- **Alone or together** — solo, cooperative, competitive, massively multiplayer
+- **Platform and controls** —\x20
+- **What sets it apart** —\x20
+
+## In the game
+
+- **…** — where to see it: scene, script, doc
+
+## To avoid
+
+- **…** — why
+""",
+    },
+    "setting": {
+        "label": "Setting",
+        "body": """\
+# {title}
+
+<!-- One sentence: the world the game takes place in, and what twists it. -->
+
+## The world
+
+- **Place and time** —\x20
+- **Scale** — a room, a city, a planet, a galaxy
+- **Tone** — light or dark, humour, stakes
+- **Who lives there** —\x20
+- **Its laws** — technology, magic: what is possible
+
+## In the game
+
+- **…** — where to see it
+
+## To avoid
+
+- **…** — why
+""",
+    },
+    "lore": {
+        "label": "Lore",
+        "body": """\
+# {title}
+
+<!-- One sentence: the story the world carries before the player arrives. -->
+
+## Before the player
+
+- **Origins** —\x20
+- **What happened** — the events that shaped the world
+
+## Who is who
+
+- **…** — a people, a faction, a figure: what they want
+
+## Mysteries
+
+- **…** — what the world does not say yet
+
+## In the game
+
+- **…** — where the player meets it: a text, a place, a name
+""",
+    },
+    "influences": {
+        "label": "Influences",
+        "body": """\
+# {title}
+
+<!-- One sentence: what the game draws on, and what it makes its own. -->
+
+## Influences
+
+- **…** — what to keep from it, what to leave
+""",
+    },
     "note": {
         "label": "Note",
         "body": "# {title}\n\n",

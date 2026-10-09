@@ -1,6 +1,6 @@
 # gamestudio
 
-*[English](README.md) · Français*
+*[English](../README.md) · Français*
 
 Studio de génération d'assets de jeu : d'une fiche du monde à une entité 3D
 riggée et animée, prête à ouvrir dans Godot — et rendue en planches de sprites
@@ -13,7 +13,7 @@ fiche ──► concepts (pose imposée) ──► mesh 3D ───────
 ```
 
 Le dépôt est en anglais ; l'interface de bureau parle anglais ou français. Ce
-fichier est la traduction française de [`README.md`](README.md).
+fichier est la traduction française de [`README.md`](../README.md).
 
 ---
 
@@ -122,7 +122,7 @@ Blender se trouve dans le `PATH`, ou par `BLENDER_BIN` dans `.env`.
 `gamestudio mesh balance` ce qui reste sur le compte Tripo (lecture seule,
 gratuite).
 
-**Première mise en route** : [`docs/getting-started.md`](docs/getting-started.md)
+**Première mise en route** : [`docs/getting-started.md`](getting-started.md)
 (en anglais) donne l'ordre des gestes et dit où chaque chose atterrit.
 
 L'interface parle anglais ou français : la langue se choisit au premier
@@ -222,7 +222,7 @@ characters:
 C'est l'unité de ré-exécution. Chaque étape porte une empreinte calculée sur ses
 entrées : modifier une entité et relancer ne recalcule que celle-là. Ce qui
 compte quand une étape coûte 0,40 $ ou dix minutes. Tous les champs :
-[`docs/recipe.md`](docs/recipe.md) (en anglais).
+[`docs/recipe.md`](recipe.md) (en anglais).
 
 ---
 
@@ -468,7 +468,7 @@ procédure est le skill `external-image`.
 ## Architecture
 
 La carte du code — un fichier par ligne, avec ce qu'il fait — est
-[`context/codemap.md`](context/codemap.md), régénérée depuis l'en-tête de chaque
+[`context/codemap.md`](../context/codemap.md), régénérée depuis l'en-tête de chaque
 fichier et vérifiée par `make check`. C'est le point de départ d'une
 modification ; les procédures des agents sont dans `.claude/skills/`.
 
@@ -515,7 +515,7 @@ résolue, les cycles en boucle et seulement eux. C'est la seule façon de
 garantir qu'un fichier écrit hors de l'éditeur est réellement chargeable.
 
 Les mêmes vérifications tournent en CI sur chaque push et chaque pull request
-(voir [`docs/ci.md`](docs/ci.md), en anglais) — sans clé d'API et sans dépense possible.
+(voir [`docs/ci.md`](ci.md), en anglais) — sans clé d'API et sans dépense possible.
 
 ---
 
@@ -564,7 +564,7 @@ Le code est public sans être open source au sens de l'OSI : le studio est sous
   pour produire les assets d'un jeu vendu.
 - **Interdit** : en tirer un produit qui concurrence le studio (logiciel,
   service, plugin), qu'il soit gratuit ou payant.
-- **Matériel tiers** : il garde sa propre licence (`THIRD_PARTY_NOTICES.md`).
+- **Matériel tiers** : il garde sa propre licence (`docs/THIRD_PARTY_NOTICES.md`).
   img2threejs est sous Apache 2.0, les scripts exécutés dans Blender sous GPL 3.0
   ou ultérieure, les polices Outfit et Prompt sous OFL 1.1, les logos des agents
   (tracés de LobeHub lobe-icons) sous MIT — les marques restent à leurs
@@ -579,5 +579,5 @@ Le code est public sans être open source au sens de l'OSI : le studio est sous
   la lire avant tout usage commercial de la LoRA.
 
 Pour un usage que la licence ne permet pas, demander une licence à l'auteur.
-Contribuer : [`CONTRIBUTING.md`](CONTRIBUTING.md) (en anglais). Signaler une
-faille : [`SECURITY.md`](SECURITY.md).
+Contribuer : [`CONTRIBUTING.md`](../.github/CONTRIBUTING.md) (en anglais). Signaler une
+faille : [`SECURITY.md`](../.github/SECURITY.md).

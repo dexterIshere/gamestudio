@@ -7,7 +7,9 @@
  * for choices that would not carry over to another interface.
  */
 
-const KEY = "gamestudio.chat";
+import type { Harness } from "../api";
+
+export const META_KEY = "gamestudio.chat";
 
 /**
  * The tints offered for a tab's dot.
@@ -63,7 +65,7 @@ function efforts(raw: unknown): Record<string, string> | undefined {
 
 export function readMeta(): ChatMeta {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(META_KEY);
     if (!raw) return blank();
     const parsed = JSON.parse(raw) as Partial<ChatMeta>;
     return {
@@ -84,8 +86,23 @@ export function readMeta(): ChatMeta {
 
 export function writeMeta(meta: ChatMeta): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(meta));
+    localStorage.setItem(META_KEY, JSON.stringify(meta));
   } catch {
     /* Presentation is a convenience, never data that could be lost. */
   }
+}
+
+/** The stored level if the agent's model accepts it, else its default (""). */
+export function validEffort(harness: Harness, level: string | undefined): string {
+  return level && harness.effort_levels.includes(level) ? level : "";
+}
+
+/**
+ * Remembers the effort picked for an agent from another window (a handoff
+ * dialog): the Chats window and the dialogs share one preference, the last
+ * level chosen.
+ */
+export function rememberEffort(harness: string, level: string): void {
+  const meta = readMeta();
+  writeMeta({ ...meta, effort: { ...meta.effort, [harness]: level } });
 }

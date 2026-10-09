@@ -94,7 +94,7 @@ def test_the_index_is_regenerated_and_checked(isolated_studio: Studio, tmp_path:
     text = Path(written["path"]).read_text(encoding="utf-8")
     assert "Studio procedures" in text and "Vendored third-party material" in text
     assert "[`roster`](roster/SKILL.md)" in text
-    assert "THIRD_PARTY_NOTICES.md" in text
+    assert "docs/THIRD_PARTY_NOTICES.md" in text
 
     # The mirror is still missing: the check says so, and `sync` repairs it.
     assert any("mirror" in problem["problem"] for problem in skills.check()["problems"])

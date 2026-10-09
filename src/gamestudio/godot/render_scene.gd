@@ -4,12 +4,18 @@
 ##   godot --path <project> --script <this file> -- --gs-scene=res://... \
 ##     --gs-out=/path.png [--gs-scale=2] [--gs-width=720 --gs-height=1280] \
 ##     [--gs-delay=0.5] [--gs-crop] [--gs-transparent] [--gs-locale=fr] \
-##     [--gs-setup=/path/setup.gd] [--gs-nodes=/path/nodes.json]
+##     [--gs-prepare=/path/prepare.gd] [--gs-setup=/path/setup.gd]
+##     [--gs-nodes=/path/nodes.json]
 ##
 ## The scene is instantiated in a SubViewport at the game's size, rendered at
 ## `scale` times its resolution: a 720 x 1280 interface comes out sharp at
 ## 1440 x 2560. The project's autoloads are there, as in the game. The script
 ## touches no file of the project: it only writes the requested image.
+##
+## `--gs-prepare` runs before the scene exists (its `scene` is null): the
+## project's preview data points the game's autoloads at a fake server there,
+## before the screen asks it anything (`service/preview_data.py`). `--gs-setup`
+## runs once the scene is in the tree.
 ##
 ## With `--gs-nodes`, it also lists the visible Controls: their path, their
 ## type, their rectangle in image pixels, and the scene that declares them --
@@ -54,6 +60,22 @@ func _fail(reason: String) -> void:
 	quit(1)
 
 
+## Run a setup script's `setup(scene)`; false (and the render failed) if it
+## cannot run.
+func _helper(path: String, scene: Node) -> bool:
+	var helper_script = load(path)
+	if helper_script == null:
+		_fail("unreadable setup: " + path)
+		return false
+	# A setup written for another version of the game (a function that changed
+	# signature, an autoload that moved) does not compile.
+	if not helper_script.can_instantiate():
+		_fail("the render setup does not compile against this version of the game")
+		return false
+	await helper_script.new().setup(scene)
+	return true
+
+
 func _run() -> void:
 	print("GAMESTUDIO_RENDER: START")
 	var args := _args()
@@ -93,17 +115,14 @@ func _run() -> void:
 	if not packed is PackedScene:
 		_fail("not a scene: " + scene_path)
 		return
+	if args.has("prepare") and not await _helper(args["prepare"], null):
+		return
 	var scene: Node = packed.instantiate()
 	view.add_child(scene)
 
 	# The setup the agent wrote: open a page, fill a list.
-	if args.has("setup"):
-		var helper_script = load(args["setup"])
-		if helper_script == null:
-			_fail("unreadable setup: " + str(args["setup"]))
-			return
-		var helper = helper_script.new()
-		await helper.setup(scene)
+	if args.has("setup") and not await _helper(args["setup"], scene):
+		return
 
 	# Time for the interface to settle and its intro animations to finish.
 	if delay > 0.0:

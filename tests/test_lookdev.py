@@ -5,9 +5,11 @@ the game puts on it, use by use, named by the node carrying it; an include is
 not rendered alone; no verdict is held, the setup is written next to the project
 without touching the game, and what is wrong is refused; "Save" writes into the
 game only the touched settings, where the use takes them; a shader is discussed
-with an agent, whose brief carries its uses; the page only serves the fonts the
-game declares. The bench tests have a shader rendered by the bench -- Godot off
-screen -- and only run where Godot and a virtual display are installed.
+with an agent, whose brief carries its uses, and so is a whole section -- its
+colors with where each is written, its typography, a family of shaders; the
+page only serves the fonts the game declares. The bench tests have a shader
+rendered by the bench -- Godot off screen -- and only run where Godot and a
+virtual display are installed.
 """
 
 from __future__ import annotations
@@ -128,6 +130,24 @@ def test_each_shader_becomes_a_specimen(game: Path) -> None:
     assert len(universe["specimens"]) == 4
     assert universe["theme"]["background"] == "#0d1729"
     assert universe["theme"]["fonts"] == [{"file": "client/fonts/Title.ttf", "family": "Title"}]
+    # The page is set in the game's family, with every face of it.
+    assert universe["theme"]["font"] == {"family": "Title", "faces": [
+        {"file": "client/fonts/Title.ttf", "weight": 400, "italic": False}]}
+
+
+def test_the_art_direction_comes_by_aspect(game: Path) -> None:
+    """Colors, typography and shaders: each aspect of the art direction, read from the game."""
+    universe = lookdev.universe("game")
+    assert set(universe) >= {"specimens", "palette", "typography", "theme"}
+    by_hex = {color["hex"]: color for color in universe["palette"]["colors"]}
+    assert by_hex["#ffcc66"]["uses"] == [{"file": "client/ui/bar.tscn", "aspect": "interface",
+                                         "count": 1, "names": ["tint"]}], \
+        "the tint the scene sets, on an interface shader"
+    assert by_hex["#3366e6"]["uses"][0]["file"] == "client/shaders/button.gdshader", \
+        "the shader's own color setting"
+    assert universe["palette"]["total"] >= by_hex["#ffcc66"]["count"]
+    [family] = universe["typography"]["families"]
+    assert family["family"] == "Title" and family["faces"][0]["uses"] == 0
 
 
 def test_uses_carry_the_game_settings(game: Path) -> None:
@@ -175,6 +195,28 @@ def test_a_shader_is_discussed_with_an_agent(game: Path,
     assert "\n" not in brief["prompt"] and brief["path"] in brief["prompt"]
     with pytest.raises(NotFound):
         handoff.lookdev_brief("game", "missing")
+
+
+def test_a_section_is_discussed_as_a_whole(game: Path) -> None:
+    """Colors, typography or a family of shaders: the brief carries the section and where."""
+    brief = handoff.lookdev_aspect_brief("game", "colors")
+    text = Path(brief["path"]).read_text(encoding="utf-8")
+    assert Path(brief["path"]).name == "lookdev-aspect-colors.md"
+    assert "### Interface — " in text
+    assert "- `#ffcc66` x1 — `client/ui/bar.tscn` (tint)" in text, "a color and where it is"
+    assert "studio/lookdev-colors" in text, "the game is only modified on a branch"
+    assert "\n" not in brief["prompt"] and brief["path"] in brief["prompt"]
+
+    text = Path(handoff.lookdev_aspect_brief("game", "typography")["path"]).read_text(
+        encoding="utf-8")
+    assert "**Title**" in text and "Title.ttf` — cited nowhere" in text
+
+    text = Path(handoff.lookdev_aspect_brief("game", "interface")["path"]).read_text(
+        encoding="utf-8")
+    assert 'lookdev_brief(project="game", specimen="button")' in text
+    assert "**green**" in text and "### Their colors" in text and "`#ffcc66`" in text
+    with pytest.raises(NotFound):
+        handoff.lookdev_aspect_brief("game", "sound")
 
 
 def test_an_include_is_not_rendered_alone_and_fonts_are_the_game_ones(
@@ -238,9 +280,37 @@ def test_save_refuses_what_cannot_be_written(game: Path) -> None:
     assert scene.read_text(encoding="utf-8") == before, "a refusal writes nothing"
 
 
-def test_the_game_screen_tells_the_scale_a_device_renders_it_at(game: Path) -> None:
-    target = lookdev._target("game", "button", fresh=True)
-    assert target["screen"] == {"width": 320, "height": 240, "stretch": "disabled"}
+def test_the_game_screen_tells_how_a_device_shows_it(game: Path) -> None:
+    screen = lookdev._target("game", "button", fresh=True)["screen"]
+    assert {key: screen[key] for key in ("width", "height", "stretch", "aspect")} == \
+        {"width": 320, "height": 240, "stretch": "disabled", "aspect": "keep"}
+    # No orientation declared: the handhelds are held like the base size, wide.
+    assert [(d["id"], d["width"], d["height"]) for d in screen["devices"]] == \
+        [("phone", 2400, 1080), ("tablet", 2048, 1536), ("desktop", 1920, 1080)]
+    with pytest.raises(ServiceError, match="unknown device"):
+        lookdev.frame("game", "button", device="watch")
+
+
+def test_a_device_screen_follows_the_game_stretch_settings() -> None:
+    upright = {"width": 720, "height": 1280, "stretch": "canvas_items", "aspect": "keep"}
+    phone = lookdev._layout(upright, 1080, 2400)
+    assert phone["size"] == [1080, 2400] and phone["logical"] == pytest.approx([720, 1600])
+    assert phone["content"] == pytest.approx([0, 160, 720, 1280]), "bars above and below"
+    desktop = lookdev._layout(upright, 1920, 1080)
+    assert desktop["content"][0] == pytest.approx((1920 / (1080 / 1280) - 720) / 2), \
+        "bars on both sides"
+    assert lookdev._layout({**upright, "aspect": "expand"}, 1920, 1080)["content"] == \
+        pytest.approx([0, 0, 1280 * 1920 / 1080, 1280]), "the game widens to the screen"
+    assert lookdev._layout({**upright, "aspect": "keep_width"}, 1080, 2400)["content"] == \
+        pytest.approx([0, 0, 720, 1600]), "the game grows taller"
+    assert lookdev._layout({**upright, "stretch": "viewport"}, 1080, 2400)["size"] == [720, 1600], \
+        "drawn at the base size, enlarged by the screen"
+    assert lookdev._layout({**upright, "stretch": "disabled"}, 1080, 2400)["content"] == \
+        [0, 0, 1080, 2400], "no scaling: the screen's pixels are the game's units"
+    assert [d["width"] for d in lookdev._devices(upright, "1")] == [1080, 1536, 1920]
+    assert [d["width"] for d in lookdev._devices(upright, "0")] == [2400, 2048, 1920], \
+        "a game held in landscape turns the handhelds"
+    assert lookdev._devices(upright, "")[0]["height"] == 2400, "upright like its base size"
 
 @BENCH
 def test_the_bench_renders_the_shader_with_the_game_settings(game: Path) -> None:
@@ -285,6 +355,70 @@ def test_an_agent_looks_at_a_specimen_and_presents_it(game: Path) -> None:
     laid = mcp_server.lookdev_set("game", "button", shape="plane")
     assert laid["shape"] == "plane"
     assert [entry["id"] for entry in mcp_server.lookdev("game")["specimens"]].count("button") == 1
+
+
+# A strip along the bottom of the game, as a HUD bar is anchored.
+HUD = """[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Shader" path="res://shaders/button.gdshader" id="1_s"]
+
+[sub_resource type="ShaderMaterial" id="mat_hud"]
+shader = ExtResource("1_s")
+shader_parameter/tint = Color(0, 1, 0, 1)
+shader_parameter/glow = 0.5
+
+[node name="Hud" type="Control"]
+layout_mode = 3
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -40.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="Strip" type="ColorRect" parent="."]
+material = SubResource("mat_hud")
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+"""
+
+
+@BENCH
+def test_a_device_shows_the_use_where_the_game_places_it(game: Path) -> None:
+    (game / "client" / "ui" / "hud.tscn").write_text(HUD, encoding="utf-8")
+    project = game / "client" / "project.godot"
+    project.write_text(project.read_text(encoding="utf-8")
+                       + '\nwindow/stretch/mode="canvas_items"\nwindow/handheld/orientation=1\n',
+                       encoding="utf-8")
+    lookdev._target("game", "button", fresh=True)
+    green, red, black = (0, 255, 0), (255, 0, 0), (0, 0, 0)
+
+    def look(device: str, **kwargs) -> Image.Image:
+        shot = lookdev.frame("game", "button", preset="hud-strip", device=device,
+                             background="#102030", **kwargs)
+        return Image.open(io.BytesIO(shot["image"])).convert("RGB")
+
+    # 320 x 240 on an upright phone: scale 3.375, the game's area between two bars.
+    with look("phone") as phone:
+        assert phone.size == (1080, 2400)
+        assert phone.getpixel((540, 100)) == pytest.approx(black, abs=6), "bar above"
+        assert phone.getpixel((540, 1000)) == pytest.approx((16, 32, 48), abs=6), "the game's area"
+        assert phone.getpixel((540, 1540)) == pytest.approx(green, abs=6), "the strip, at the bottom"
+    with look("phone", params={"tint": [1, 0, 0, 1]}) as tuned:
+        assert tuned.getpixel((540, 1540)) == pytest.approx(red, abs=6), "the settings apply"
+    # On a desktop monitor the same game keeps its proportions: bars on the sides.
+    with look("desktop") as desktop:
+        assert desktop.size == (1920, 1080)
+        assert desktop.getpixel((100, 540)) == pytest.approx(black, abs=6)
+        assert desktop.getpixel((960, 1040)) == pytest.approx(green, abs=6)
+    # Back on the template, the studio view is the same as before.
+    with Image.open(io.BytesIO(lookdev.frame("game", "button", scale=1)["image"])) as image:
+        assert image.size == (120, 40)
 
 
 def _pixel(shot: dict) -> tuple[int, int, int]:
@@ -380,6 +514,9 @@ def test_formats_and_groups(game: Path) -> None:
     assert live["image"][:3] == b"\xff\xd8\xff" and live["media_type"] == "image/jpeg"
     thumbnail = lookdev.frame("game", "button", format="webp")
     assert thumbnail["image"][8:12] == b"WEBP"
+    # Exact, for a sky behind the page: no compression smears it.
+    exact = lookdev.frame("game", "button", format="png")
+    assert exact["image"][:8] == b"\x89PNG\r\n\x1a\n" and exact["media_type"] == "image/png"
     with pytest.raises(ServiceError, match="unknown format"):
         lookdev.frame("game", "button", format="gif")
     with pytest.raises(ServiceError, match="unreadable background"):

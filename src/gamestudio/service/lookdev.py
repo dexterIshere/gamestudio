@@ -54,21 +54,30 @@ from typing import Any
 
 from ..net import find_free_port
 from ..store.folders import project_paths
-from . import documents, renders, survey
+from . import colors, documents, fonts, influences, renders, survey
 from .context import studio
 from .errors import NotFound, ServiceError
 
 SCRIPT = Path(__file__).resolve().parent.parent / "godot" / "lookdev_bench.gd"
 STATE_FOLDER = "lookdev"
 SHAPES = ("sphere", "plane", "cube")
+# The screens a specimen is seen on, by their resolution upright: a phone, a
+# tablet, a desktop monitor (always landscape). A game held in landscape turns
+# the first two (`_devices`).
+DEVICES = {"phone": (1080, 2400), "tablet": (1536, 2048), "desktop": (1920, 1080)}
+# Godot's `window/handheld/orientation` values that hold the device upright.
+_UPRIGHT = {"1", "3", "5"}
+_SENSOR = "6"
 # The bench announces it is listening; past this, the virtual display did not start.
 START_TIMEOUT = 30.0
 # An image, or building a real game object (a planet: ~1.5 s, plus the first
 # compilation of its shaders).
 ASK_TIMEOUT = 60.0
 # The bench's image formats: `jpg` for the live image (5 ms at 640 px), `webp`
-# for a thumbnail that keeps its transparency (45 ms, once).
-FORMATS = {"jpg": "image/jpeg", "webp": "image/webp"}
+# for a thumbnail that keeps its transparency (45 ms, once), `png` for an image
+# that must stay exact -- a sky as the page's background, where JPEG smears the
+# stars (lossless, once per page).
+FORMATS = {"jpg": "image/jpeg", "webp": "image/webp", "png": "image/png"}
 # What a bench with nothing laid on it answers (it was restarted).
 EMPTY = "nothing on the bench"
 PORT_BASE = 47400
@@ -433,22 +442,45 @@ def _find(project: str, specimen: str) -> tuple[Path, dict[str, Any], dict[str, 
 
 
 def theme(project: str, game: dict[str, Any] | None = None,
-          found: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    """The game's theme: its background, colors, fonts, sky."""
+          found: list[dict[str, Any]] | None = None,
+          typography: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The game's theme: its background, colors, fonts, sky.
+
+    `font` is the family the page is set in -- the game's default font, else
+    its largest family -- with every face, so a heading in semibold uses the
+    game's semibold file instead of a weight the browser makes up.
+    """
     if game is None or found is None:
-        _, game, found = _specimens(project)
+        root, game, found = _specimens(project)
+        typography = fonts.typography(root, game)
+    typography = typography or {"families": []}
     clear = next((entry["clear_color"] for entry in game["godot"] if entry["clear_color"]), "")
-    colors = [color for color in game["colors"] if len(color) == 7][:THEME_COLORS]
+    tints = [color for color in game["colors"] if len(color) == 7][:THEME_COLORS]
     sky = next((entry["id"] for entry in found if entry["kind"] == "sky"), "")
-    return {"background": clear or "#0b0d12", "colors": colors,
+    family = next((item for item in typography["families"]
+                   if any(face["default"] for face in item["faces"])), None) \
+        or max(typography["families"], key=lambda item: len(item["faces"]), default=None)
+    return {"background": clear or "#0b0d12", "colors": tints,
             "fonts": [{"file": font, "family": Path(font).stem} for font in game["fonts"]],
+            "font": {"family": family["family"], "faces": [
+                {"file": face["file"], "weight": face["weight"], "italic": face["italic"]}
+                for face in family["faces"]]} if family else None,
             "sky": sky}
 
 
 def universe(project: str) -> dict[str, Any]:
-    """The game's specimens, and the theme presenting them."""
-    _, game, found = _specimens(project)
-    return {"project": project, "specimens": found, "theme": theme(project, game, found)}
+    """The game's art direction, by aspect: its colors, its typography, its shaders.
+
+    `theme` dresses the page as the game; `palette` (`colors.palette`: each
+    color with where it is written, by aspect) and `typography`
+    (`fonts.typography`) are read from the game's files, the specimens are its
+    shaders.
+    """
+    root, game, found = _specimens(project)
+    typography = fonts.typography(root, game)
+    return {"project": project, "specimens": found, "palette": colors.palette(root, game),
+            "direction": influences.summary(project),
+            "typography": typography, "theme": theme(project, game, found, typography)}
 
 
 def specimen(project: str, specimen_id: str) -> dict[str, Any]:
@@ -506,7 +538,7 @@ def _target(project: str, specimen_id: str, *, fresh: bool = False) -> dict[str,
         text = source.read_text(encoding="utf-8", errors="replace")
     except OSError:
         text = ""
-    target = {"entry": entry, "state": state, "source": source,
+    target = {"entry": entry, "state": state, "source": source, "root": root,
               "presets": _presets(root, game, shader, entry["res_path"]),
               "screen": _screen(game, entry),
               # A shader reading the time is animated; a game object may carry
@@ -524,12 +556,13 @@ def _forget(project: str, specimen_id: str) -> None:
 
 
 def _screen(game: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:
-    """The screen the game is drawn for: its base size and its stretch mode.
+    """The screen the game is drawn for: its base size, stretch mode and aspect.
 
-    It sets the scale at which a device renders the game: with `canvas_items`,
-    an interface 720 px wide is drawn over 1080 pixels of a 1080p screen.
-    Godot's defaults, 1152 x 648 and `disabled`, apply when the project says
-    nothing.
+    They decide how a device shows the game (`_layout`): with `canvas_items`
+    and `keep`, a 720 x 1280 game fills a 1080 x 2400 phone at scale 1.5,
+    with black bars above and below. Godot's defaults, 1152 x 648, `disabled`
+    and `keep`, apply when the project says nothing. `devices`: the device
+    screens, turned the way the game is held.
     """
     godot = next((g for g in game["godot"] if g["path"] == entry["godot"]), None)
     display = (godot or {}).get("display", {})
@@ -540,8 +573,80 @@ def _screen(game: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:
         except ValueError:
             return default
 
-    return {"width": size("viewport_width", 1152), "height": size("viewport_height", 648),
-            "stretch": display.get("mode", "disabled") or "disabled"}
+    screen = {"width": size("viewport_width", 1152), "height": size("viewport_height", 648),
+              "stretch": display.get("mode", "disabled") or "disabled",
+              "aspect": display.get("aspect", "keep") or "keep"}
+    return {**screen, "devices": _devices(screen, display.get("orientation", ""))}
+
+
+def _devices(screen: dict[str, Any], orientation: str) -> list[dict[str, Any]]:
+    """The device screens, turned the way the game holds them.
+
+    A phone or a tablet is upright when the game asks for it, landscape when it
+    asks for that, and like the game's base size when it says nothing or
+    follows the sensor. A desktop monitor stays landscape.
+    """
+    if orientation and orientation != _SENSOR:
+        upright = orientation in _UPRIGHT
+    else:
+        upright = screen["height"] > screen["width"]
+    found = []
+    for name, (width, height) in DEVICES.items():
+        if name != "desktop" and not upright:
+            width, height = height, width
+        found.append({"id": name, "width": width, "height": height})
+    return found
+
+
+def _layout(screen: dict[str, Any], width: int, height: int) -> dict[str, Any]:
+    """How the game fills a device screen, as Godot's stretch settings decide.
+
+    `logical`: the whole screen in the game's units; `content`: the game's own
+    area inside it (x, y, w, h), with black bars around it when the aspect is
+    kept; `size`: the pixels drawn. `canvas_items` draws at the screen's
+    resolution, `viewport` at the game's base size (the screen enlarges it),
+    `disabled` does not scale: the game gets the screen's pixels as its units.
+    """
+    base_w, base_h = screen["width"], screen["height"]
+    if screen["stretch"] == "disabled":
+        return {"size": [width, height], "logical": [width, height],
+                "content": [0, 0, width, height]}
+    aspect = screen["aspect"]
+    if aspect == "ignore":
+        # Stretched to the screen whatever its proportions.
+        logical = [base_w, base_h]
+        content = [0.0, 0.0, base_w, base_h]
+    else:
+        content_w, content_h = float(base_w), float(base_h)
+        wider = width / height > base_w / base_h
+        if wider and aspect in ("expand", "keep_height"):
+            content_w = base_h * width / height
+        if not wider and aspect in ("expand", "keep_width"):
+            content_h = base_w * height / width
+        scale = min(width / content_w, height / content_h)
+        logical = [width / scale, height / scale]
+        content = [(logical[0] - content_w) / 2, (logical[1] - content_h) / 2,
+                   content_w, content_h]
+    size = [width, height]
+    if screen["stretch"] == "viewport":
+        size = [max(1, round(logical[0])), max(1, round(logical[1]))]
+    return {"size": size, "logical": logical, "content": content}
+
+
+def _use(presets: list[dict[str, Any]], wanted: str) -> dict[str, Any] | None:
+    """The chosen game use, `None` for the shader's own values."""
+    if wanted == "default" or not presets:
+        return None
+    return next((p for p in presets if p["id"] == wanted), presets[0]) if wanted else presets[0]
+
+
+def _scene_of(target: dict[str, Any], use: dict[str, Any] | None) -> str:
+    """The scene that holds a use's material, as `res://`; empty for a `.tres` or none."""
+    if use is None or not use["file"].endswith(".tscn"):
+        return ""
+    base = target["entry"]["godot"]
+    inner = use["file"][len(base) + 1:] if base else use["file"]
+    return f"res://{inner}"
 
 
 def _bench_for(project: str, entry: dict[str, Any]) -> Bench:
@@ -567,12 +672,16 @@ def _refused(bench: Bench, what: str, answer: dict[str, Any]) -> ServiceError:
                         + (f"\n{tail}" if tail else ""))
 
 
-def _pose(bench: Bench, target: dict[str, Any], preset: str, shape: str) -> dict[str, Any]:
+def _pose(bench: Bench, target: dict[str, Any], preset: str, shape: str,
+          device: bool = False) -> dict[str, Any]:
     """Lay the specimen on the bench unless it is already there; return what the bench says.
 
     A game object is built once for all its shaders (`stage`), then the one
-    being looked at is picked (`focus`). The shader file is part of the key:
-    changed in the game, it reloads. Called under `bench.lock`.
+    being looked at is picked (`focus`). On a device, an interface shader is
+    laid on a screen (`screen`): the scene of the chosen use, placed as the
+    game places it, or its template when the use is no scene. The shader file
+    and the scene are part of the key: changed in the game, they reload.
+    Called under `bench.lock`.
     """
     entry, state = target["entry"], target["state"]
     try:
@@ -580,6 +689,28 @@ def _pose(bench: Bench, target: dict[str, Any], preset: str, shape: str) -> dict
     except OSError:
         stamp = 0
     setup = state["setup"]
+    if device and not setup and entry["kind"] == "canvas_item":
+        use = _use(target["presets"], preset or state["preset"])
+        scene = _scene_of(target, use)
+        nodes = use["nodes"] if scene and use else []
+        size = None
+        if not scene:
+            params = use["params"] if use else {}
+            size = params.get("node_size") if isinstance(params.get("node_size"), list) else None
+        try:
+            scene_stamp = (target["root"] / use["file"]).stat().st_mtime_ns if scene and use else 0
+        except OSError:
+            scene_stamp = 0
+        key = ("screen", entry["res_path"], scene, json.dumps(nodes), json.dumps(size), stamp,
+               scene_stamp)
+        if bench.current != key:
+            loaded = bench.ask({"op": "screen", "shader": entry["res_path"], "scene": scene,
+                                "nodes": nodes, "size": size or []})
+            if not loaded.get("ok"):
+                bench.current = None
+                raise _refused(bench, scene or entry["res_path"], loaded)
+            bench.current, bench.focus, bench.loaded = key, None, loaded
+        return bench.loaded
     if setup:
         stage = ("stage", hashlib.sha1(setup.encode()).hexdigest())
         if bench.current != stage:
@@ -613,7 +744,7 @@ def _pose(bench: Bench, target: dict[str, Any], preset: str, shape: str) -> dict
 
 
 def _posed(bench: Bench, target: dict[str, Any], preset: str, shape: str,
-           then: dict[str, Any] | None = None) -> dict[str, Any]:
+           then: dict[str, Any] | None = None, device: bool = False) -> dict[str, Any]:
     """Lay the specimen, then send `then` if given, as one unit.
 
     Two specimens asked at the same time (the grid loads its thumbnails
@@ -623,7 +754,7 @@ def _posed(bench: Bench, target: dict[str, Any], preset: str, shape: str,
     for attempt in range(2):
         try:
             with bench.lock:
-                loaded = _pose(bench, target, preset, shape)
+                loaded = _pose(bench, target, preset, shape, device)
                 if then is None:
                     return loaded
                 answer = bench.ask(then)
@@ -641,7 +772,7 @@ def _posed(bench: Bench, target: dict[str, Any], preset: str, shape: str,
 def frame(project: str, specimen_id: str, *, params: dict[str, Any] | None = None,
           preset: str = "", shape: str = "", yaw: float = 0.0, pitch: float = 0.0,
           zoom: float = 1.0, scale: float = 1.0, format: str = "jpg",
-          background: str = "") -> dict[str, Any]:
+          background: str = "", device: str = "") -> dict[str, Any]:
     """An image of the specimen, rendered by Godot with these settings.
 
     `preset`: a game use (its settings are the starting point), `default` for
@@ -649,7 +780,11 @@ def frame(project: str, specimen_id: str, *, params: dict[str, Any] | None = Non
     not repeat goes back to its starting value. `yaw`, `pitch` and `zoom` turn
     the camera around a material, an object or a sky. `format`: `jpg` (fast,
     opaque, on `background`) or `webp` (an interface keeps its transparency).
-    Free, local.
+    `device` (`phone`, `tablet`, `desktop`): the whole screen of that device,
+    at its resolution -- an interface shader in the scene of its use, placed
+    and stretched as the game's settings place it, with the black bars a kept
+    aspect leaves; a material or a sky through a camera of that format.
+    `scale` then does not apply. Free, local.
     """
     if shape and shape not in SHAPES:
         raise ServiceError(f"unknown shape: {shape} (expected: {', '.join(SHAPES)})")
@@ -665,14 +800,30 @@ def frame(project: str, specimen_id: str, *, params: dict[str, Any] | None = Non
         raise ServiceError(f"{entry['file']} ({entry['kind']}) is not rendered alone: an include "
                            "shows in the shaders that use it")
     chosen = preset or state["preset"]
-    merged = {key: value for key, value in _preset(target["presets"], chosen).items()
-              if not isinstance(value, str)}
+    screen = None
+    if device:
+        sizes = {known["id"]: known for known in target["screen"]["devices"]}
+        if device not in sizes:
+            raise ServiceError(f"unknown device: {device} (expected: {', '.join(sizes)})")
+        width, height = sizes[device]["width"], sizes[device]["height"]
+        flat = entry["kind"] == "canvas_item" and not state["setup"]
+        screen = _layout(target["screen"], width, height) if flat else {"size": [width, height]}
+    in_scene = screen is not None and "logical" in screen and bool(
+        _scene_of(target, _use(target["presets"], chosen)))
+    # A use's scene already holds its settings, and its scripts set some of them
+    # (a size that follows the screen): only the changes are sent.
+    merged = {} if in_scene else {
+        key: value for key, value in _preset(target["presets"], chosen).items()
+        if not isinstance(value, str)}
     merged.update(params or {})
     started = time.monotonic()
     bench = _bench_for(project, entry)
-    answer = _posed(bench, target, chosen, shape, {
+    command: dict[str, Any] = {
         "op": "frame", "params": merged, "yaw": yaw, "pitch": pitch, "zoom": zoom,
-        "scale": scale, "format": format, "background": background})
+        "scale": scale, "format": format, "background": background}
+    if screen is not None:
+        command["screen"] = screen
+    answer = _posed(bench, target, chosen, shape, command, device=bool(device))
     if not answer.get("ok"):
         raise ServiceError(f"image refused by the bench: {answer.get('error')}")
     kind = answer.get("format", format)

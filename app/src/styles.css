@@ -1001,6 +1001,65 @@ textarea:focus-visible,
   overflow: hidden;
   white-space: nowrap;
 }
+/* The global progress bar: a line along the status bar's top edge, and what
+   runs, next to the queue. */
+.status-bar {
+  position: relative;
+}
+.activity-line {
+  position: absolute;
+  inset: -1px 0 auto 0;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.activity-line > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  box-shadow: var(--glow-led);
+  transition: width 0.25s linear;
+}
+.activity-line.is-endless::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 30%;
+  background: var(--accent);
+  box-shadow: var(--glow-led);
+  animation: activity-run 1.6s ease-in-out infinite;
+}
+@keyframes activity-run {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(340%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .activity-line.is-endless::after {
+    animation: none;
+    width: 100%;
+    opacity: 0.6;
+  }
+}
+.activity {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg-2);
+}
+.activity .num {
+  color: var(--muted);
+}
+.activity-agent {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-ink);
+  font: inherit;
+  cursor: pointer;
+}
 .status-bar .sep {
   color: var(--border-strong);
 }
@@ -1504,6 +1563,17 @@ input[type="range"]::-moz-range-thumb {
   background: var(--surface-warm);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
+}
+/* A glyph in a segment, like in an icon button. */
+.seg button svg {
+  width: var(--icon);
+  height: var(--icon);
+  vertical-align: middle;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .seg button {
   min-height: 32px;
@@ -2702,7 +2772,6 @@ input[type="range"]::-moz-range-thumb {
     var(--grad-panel),
     var(--surface-2);
   box-shadow: var(--elev-inset), var(--elev-raised);
-  backdrop-filter: blur(6px);
   pointer-events: auto;
   animation: toast-in var(--motion-slow) var(--ease-standard) both;
 }
@@ -5302,7 +5371,9 @@ details.more .more-body {
    reading or writing ("Save" is not hunted for by scrolling up a long text),
    and its gestures wrap under the title when room is short. Dressed as a
    panel: sticky, it must cover the text scrolling under it, without becoming
-   a black slab among the panels. */
+   a black slab among the panels. Its background is opaque rather than
+   blurred: a backdrop filter over scrolling content is recomputed on every
+   frame of the scroll, for a blur nobody sees through a near-opaque panel. */
 .card-head {
   position: sticky;
   top: 0;
@@ -5314,9 +5385,8 @@ details.more .more-body {
   padding: var(--space-4) var(--space-5);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: var(--grad-panel);
+  background: var(--grad-panel), var(--surface);
   box-shadow: var(--elev-inset);
-  backdrop-filter: blur(8px);
 }
 .card-titles {
   flex: 1 1 240px;
@@ -6321,18 +6391,101 @@ details.more .more-body {
   color: var(--muted);
   font-size: var(--text-xs);
 }
+/* Every part of the editor is a pane of its own -- a panel nested in the
+   card's tab, on the warmer surface that sets it apart: the stage (its
+   toolbar on top, the screen on a dotted canvas, its branch at the foot),
+   then the layers, the selection and the comments. */
 .screen-editor {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: var(--space-5);
-}
-.screen-stage-wrap {
-  flex: 1 1 320px;
-  min-width: 0;
-  display: grid;
-  justify-items: center;
   gap: var(--space-4);
+}
+.screen-pane {
+  background: var(--surface-warm);
+}
+.screen-pane > .panel-head {
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
+}
+.screen-pane > .panel-head h2 {
+  font-size: var(--text-sm);
+}
+.screen-pane > .panel-head > .head-line {
+  min-width: min(100%, 6rem);
+}
+.screen-pane > .panel-foot {
+  padding: var(--space-2) var(--space-3);
+}
+.screen-pane-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.screen-stage-pane {
+  flex: 1 1 420px;
+  min-width: 0;
+}
+.screen-stage-pane > .screen-stage-head {
+  padding: var(--space-2) var(--space-3);
+}
+.screen-toolbar {
+  flex: 1 1 auto;
+}
+/* The screen picker takes the first line with its two actions; the fake
+   data folds under them when the pane is narrow. */
+.screen-toolbar > .tool-group:first-child {
+  flex: 1 1 200px;
+}
+.screen-toolbar > .tool-group:first-child .screen-pick {
+  flex: 1 1 auto;
+}
+.screen-toolbar > .tool-group.is-end {
+  order: 1;
+}
+.screen-toolbar > .tool-group:not(:first-child, .is-end) {
+  order: 2;
+}
+.screen-stage-body {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 320px;
+  /* The bottom keeps the floating zoom off the screen. */
+  padding: var(--space-5) var(--space-5) var(--space-12);
+  background-image: radial-gradient(var(--border-soft) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+/* The zoom floats on the canvas, as in a design tool, on an opaque
+   background (see `.card-head`). */
+.screen-zoom {
+  position: absolute;
+  right: var(--space-3);
+  bottom: var(--space-3);
+  z-index: 2;
+}
+.screen-zoom .seg {
+  background: var(--surface-2);
+  box-shadow: var(--elev-raised);
+}
+.screen-stage-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--border-soft);
+  background: var(--glass);
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.screen-stage-foot .mono {
+  min-width: 0;
+  color: var(--fg-2);
+  overflow-wrap: anywhere;
+}
+.screen-stage-foot .badge {
+  margin-left: auto;
 }
 .screen-stage {
   max-width: 100%;
@@ -6344,6 +6497,12 @@ details.more .more-body {
   justify-self: stretch;
   max-height: min(64vh, 680px);
   overflow: auto;
+}
+/* Dragged, the zoomed render moves under a closed hand (`usePan`). */
+.screen-stage.is-panning,
+.screen-stage.is-panning .screen-canvas {
+  cursor: grabbing;
+  user-select: none;
 }
 .screen-canvas {
   position: relative;
@@ -6390,25 +6549,57 @@ details.more .more-body {
   line-height: 1.4;
   white-space: nowrap;
 }
-.screen-stage-wrap > .card-render-meta {
-  justify-self: stretch;
+.screen-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  pointer-events: auto;
+}
+.screen-tag .screen-comment-open {
+  width: 20px;
+  height: 20px;
+  min-height: 0;
+  padding: 0;
+  color: inherit;
+}
+.screen-tag .screen-comment-open svg {
+  width: 16px;
+  height: 16px;
+}
+.screen-tag.is-below {
+  bottom: auto;
+  top: 100%;
+  margin: 2px 0 0;
+}
+.screen-tag.is-end {
+  left: auto;
+  right: -2px;
+}
+/* No room above or under (an element that covers the screen): inside its top edge. */
+.screen-tag.is-inside {
+  top: 2px;
+  bottom: auto;
+  left: 2px;
+  margin: 0;
+}
+.screen-tag.is-inside.is-end {
+  left: auto;
+  right: 2px;
 }
 .screen-side {
   flex: 1 1 300px;
-  max-width: 420px;
+  max-width: 400px;
   min-width: 0;
   display: grid;
+  align-content: start;
   gap: var(--space-4);
 }
 .screen-layers {
   margin: 0;
-  padding: var(--space-1);
+  padding: var(--space-2);
   list-style: none;
-  max-height: 220px;
+  max-height: 260px;
   overflow: auto;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-sm);
-  background: var(--surface-warm);
 }
 .screen-layer {
   width: 100%;
@@ -6447,99 +6638,25 @@ details.more .more-body {
   color: var(--muted);
   font-size: var(--text-xs);
 }
-.screen-inspector {
+/* The selection: its name in the selection's colour, its file as a chip. */
+.panel-body.screen-inspector {
   display: grid;
   gap: var(--space-3);
+  padding: var(--space-4);
 }
-/* The inspector's header stays in view: apply without scrolling back down. */
-.screen-inspector-head {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  padding-block: var(--space-2);
-  background: var(--surface);
+.screen-pane.is-selection > .panel-head h2 {
+  color: var(--accent-ink);
 }
-.screen-inspector-head .mono,
 .screen-inspector-file {
-  color: var(--muted);
+  justify-self: start;
+  max-width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xs);
+  background: var(--wash-2);
+  color: var(--fg-2);
   font-size: var(--text-xs);
   overflow-wrap: anywhere;
-}
-.screen-group {
-  display: grid;
-  gap: var(--space-2);
-}
-.screen-group h4 {
-  margin: var(--space-2) 0 0;
-  color: var(--fg-2);
-  font-family: var(--font-display);
-  font-size: var(--text-xs);
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
-}
-.screen-prop {
-  display: grid;
-  grid-template-columns: minmax(96px, 36%) minmax(0, 1fr);
-  align-items: center;
-  gap: var(--space-3);
-}
-.screen-prop .label {
-  color: var(--fg-2);
-  font-size: var(--text-sm);
-}
-.screen-prop.is-touched .label {
-  color: var(--accent);
-}
-.screen-prop-input {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  min-width: 0;
-}
-.screen-prop-input > :first-child {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.screen-prop textarea {
-  min-height: 42px;
-}
-.screen-color,
-.screen-pair,
-.screen-texture {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-.screen-color input[type="color"] {
-  flex: 0 0 42px;
-  width: 42px;
-  padding: 4px;
-}
-.screen-pair input {
-  min-width: 0;
-}
-.screen-texture img {
-  flex: 0 0 auto;
-  width: var(--icon-lg);
-  height: var(--icon-lg);
-  object-fit: contain;
-}
-.screen-texture .dropdown {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.screen-reset {
-  flex: 0 0 auto;
-}
-.screen-apply {
-  display: flex;
-  margin-left: auto;
-  gap: var(--space-2);
 }
 
 /* The references: the images the user adds to the card. An image dropped on
@@ -7103,9 +7220,12 @@ details.more .more-body {
   background: var(--u-bg, var(--surface));
   color: var(--u-ink, var(--fg));
 }
+/* The game's sky covers the first screen only, rendered at its size: on a
+   long page it would otherwise be stretched to the page's whole height. */
 .lookdev-sky {
   position: absolute;
-  inset: 0;
+  inset: 0 0 auto;
+  height: min(100%, 100vh);
   z-index: -1;
   background-image: var(--u-sky, none);
   background-size: cover;
@@ -7151,10 +7271,6 @@ details.more .more-body {
   border-radius: var(--radius-pill);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--u-ink, var(--fg)) 25%, transparent);
 }
-.lookdev-actions {
-  display: flex;
-  gap: var(--space-2);
-}
 /* The rooms: glass laid over the game's sky. */
 .lookdev-room,
 .lookdev-panel {
@@ -7183,6 +7299,1060 @@ details.more .more-body {
 .lookdev-room-head h2 {
   font-size: var(--text-xl);
   text-transform: uppercase;
+}
+/* The aspects of the art direction, one section each. */
+.lookdev-sections {
+  display: flex;
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+.lookdev-sections .seg {
+  flex-wrap: wrap;
+  backdrop-filter: blur(14px);
+}
+.lookdev-sections .seg .num {
+  margin-left: var(--space-1);
+  opacity: 0.65;
+}
+.lookdev-subsection {
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: 1px solid color-mix(in srgb, var(--u-ink, var(--fg)) 10%, transparent);
+}
+.lookdev-subsection h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  margin: 0 0 var(--space-4);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.lookdev-subsection-file {
+  font-size: var(--text-xs);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.6;
+  overflow-wrap: anywhere;
+}
+
+/* The colors: their share of the game as a band, then a swatch each. */
+.lookdev-band {
+  display: flex;
+  height: 40px;
+  margin-bottom: var(--space-5);
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--u-ink, var(--fg)) 16%, transparent);
+}
+.lookdev-band span {
+  min-width: 3px;
+  flex-basis: 0;
+}
+.lookdev-swatches {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lookdev-swatch {
+  display: grid;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--u-ink, var(--fg)) 12%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--u-bg, var(--surface)) 80%, var(--shade));
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--motion-fast) var(--ease-standard);
+}
+.lookdev-swatch:hover,
+.lookdev-swatch[aria-pressed="true"] {
+  border-color: var(--u-accent, var(--accent));
+}
+.lookdev-swatch[aria-pressed="true"] {
+  box-shadow: 0 0 0 1px var(--u-accent, var(--accent));
+}
+.lookdev-swatch:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.lookdev-swatch-chip {
+  height: 48px;
+}
+/* A color over a checkerboard: a transparent one shows as such, not as black. */
+.lookdev-chip {
+  background:
+    linear-gradient(var(--chip), var(--chip)),
+    repeating-conic-gradient(var(--board-check) 0 25%, transparent 0 50%) 0 0 / 12px 12px,
+    var(--board);
+}
+.lookdev-swatch-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+}
+.lookdev-swatch-text .num {
+  opacity: 0.65;
+}
+.lookdev-swatch-key {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow: hidden;
+  opacity: 0.65;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lookdev-unfold {
+  margin-top: var(--space-3);
+}
+/* The colors by aspect on the left; where the chosen one is written, alongside. */
+.lookdev-colors {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+  gap: var(--space-5);
+  align-items: start;
+}
+.lookdev-colors:not(.is-single) > div > .lookdev-subsection:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+/* Beside a section's shaders, its colors: the chosen one's uses stay in line
+   with the swatches. */
+.lookdev-colors.is-single {
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: 1px solid color-mix(in srgb, var(--u-ink, var(--fg)) 10%, transparent);
+}
+.lookdev-colors.is-single > div > .lookdev-subsection {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.lookdev-uses {
+  position: sticky;
+  top: var(--space-4);
+  display: grid;
+  gap: var(--space-4);
+  max-height: calc(100vh - var(--space-8));
+  padding: var(--space-4);
+  overflow-y: auto;
+  border: 1px solid color-mix(in srgb, var(--u-ink, var(--fg)) 12%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--u-bg, var(--surface)) 80%, var(--shade));
+}
+.lookdev-uses-chip {
+  height: 88px;
+  border-radius: var(--radius-sm);
+}
+.lookdev-uses-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+}
+.lookdev-uses-head .num {
+  flex: 1;
+  font-size: var(--text-xs);
+  opacity: 0.65;
+}
+.lookdev-uses-aspect h4 {
+  display: flex;
+  justify-content: space-between;
+  margin: 0 0 var(--space-2);
+  font-family: inherit;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.lookdev-uses-aspect h4 .num {
+  opacity: 0.65;
+}
+.lookdev-uses-aspect ul {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lookdev-uses-aspect li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0 var(--space-2);
+  font-size: var(--text-xs);
+}
+.lookdev-uses-file {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lookdev-uses-file > span {
+  opacity: 0.55;
+}
+.lookdev-uses-aspect li > .num {
+  opacity: 0.65;
+}
+.lookdev-uses-names {
+  flex-basis: 100%;
+  opacity: 0.65;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1000px) {
+  .lookdev-colors {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lookdev-uses {
+    position: static;
+    order: -1;
+    max-height: none;
+  }
+}
+
+/* The graphic style and the game type: their parts and influences on the
+   left, in tabs; the thread with the agent alongside, which stays in view. */
+.direction {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+  gap: var(--space-5);
+  align-items: start;
+}
+.direction-main {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.direction-tabs .seg {
+  flex-wrap: wrap;
+}
+.direction-tabs .num {
+  margin-left: var(--space-1);
+  opacity: 0.65;
+}
+/* A written part: a dot beside its name. */
+.direction-written {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: var(--space-2);
+  border-radius: 50%;
+  background: var(--success);
+  vertical-align: middle;
+}
+.direction-failure {
+  margin: 0;
+  color: var(--danger);
+}
+.direction-text,
+.direction-editor,
+.direction-influence,
+.direction-add-form {
+  border: 1px solid color-mix(in srgb, var(--u-ink, var(--fg)) 12%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--u-bg, var(--surface)) 80%, var(--shade));
+}
+.direction-text {
+  position: relative;
+  padding: var(--space-5) calc(var(--space-6) + 32px) var(--space-5) var(--space-6);
+}
+.direction-text .md {
+  max-width: 72ch;
+}
+/* A part never written: its name, and the two ways to write it. */
+.direction-blank {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-4);
+  padding: var(--space-12) var(--space-6);
+  border: 1px dashed color-mix(in srgb, var(--u-ink, var(--fg)) 18%, transparent);
+  border-radius: var(--radius-md);
+}
+.direction-blank h3 {
+  margin: 0;
+  font-family: inherit;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+.direction-blank > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+}
+.direction-blank .btn,
+.direction-add {
+  gap: var(--space-2);
+}
+.direction-blank .btn svg {
+  width: var(--icon);
+  height: var(--icon);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.direction-text-actions {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.direction-editor {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+.direction-editor textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+.direction-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.direction-editor-file {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-xs);
+  opacity: 0.55;
+  overflow-wrap: anywhere;
+}
+.direction-influences {
+  display: grid;
+  gap: var(--space-4);
+}
+.direction-add {
+  justify-self: start;
+}
+.direction-add svg,
+.direction-drop svg {
+  width: var(--icon);
+  height: var(--icon);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.direction-add-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+.direction-add-form input {
+  flex: 1 1 220px;
+}
+.direction-influence-edit {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+.direction-influence-edit label {
+  display: grid;
+  gap: var(--space-1);
+}
+.direction-influence-edit label > span {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+.direction-influence-edit textarea {
+  resize: vertical;
+  font-size: var(--text-sm);
+}
+.direction-influences > ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.direction-influence {
+  display: grid;
+  align-content: start;
+  overflow: hidden;
+  transition: border-color var(--motion-fast) var(--ease-standard);
+}
+.direction-influence.is-dragging {
+  border-color: var(--u-accent, var(--accent));
+  box-shadow: 0 0 0 1px var(--u-accent, var(--accent));
+}
+/* The influence's images first, large: it is a mood board. */
+.direction-mosaic {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px;
+  aspect-ratio: 16 / 10;
+  background: color-mix(in srgb, var(--u-ink, var(--fg)) 8%, transparent);
+}
+.direction-mosaic.is-1 {
+  grid-template-columns: minmax(0, 1fr);
+}
+.direction-mosaic.is-2 > * {
+  grid-row: span 2;
+}
+.direction-mosaic.is-3 > :first-child {
+  grid-row: span 2;
+}
+.direction-tile {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+.direction-tile > button:first-child {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: var(--board);
+  cursor: zoom-in;
+}
+/* An image leaves its influence from its own corner, shown on hover. */
+.direction-tile-remove {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+}
+.direction-tile:hover .direction-tile-remove,
+.direction-tile-remove:focus-visible {
+  opacity: 1;
+}
+.direction-mosaic img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform var(--motion-fast) var(--ease-standard);
+}
+.direction-tile > button:first-child:hover img {
+  transform: scale(1.03);
+}
+.direction-more {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--shade) 65%, transparent);
+  color: var(--fg);
+  font-size: var(--text-xs);
+}
+.direction-drop {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 10;
+  padding: var(--space-3);
+  border: 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--u-ink, var(--fg)) 18%, transparent);
+  background: color-mix(in srgb, var(--u-ink, var(--fg)) 4%, transparent);
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-xs);
+  opacity: 0.7;
+  cursor: pointer;
+}
+.direction-drop:hover {
+  opacity: 1;
+}
+.direction-influence-body {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-2) var(--space-3) var(--space-4);
+}
+.direction-influence-body header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+.direction-influence-body header > div {
+  flex: 1;
+  min-width: 0;
+  padding-top: var(--space-1);
+}
+.direction-influence h4 {
+  margin: 0;
+  font-family: inherit;
+  font-size: var(--text-base);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.direction-kind {
+  font-size: var(--text-xs);
+  opacity: 0.65;
+}
+/* What is kept and left: three lines each, the rest on a click. */
+.direction-keep {
+  display: grid;
+  gap: var(--space-2);
+  margin-right: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
+}
+.direction-keep span {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.direction-keep.is-open span {
+  display: block;
+}
+.direction-keep b {
+  margin-right: var(--space-1);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+/* Images asked for: what to see, then the influences whose images the model
+   looks at, ticked by their first image. */
+.direction-generate {
+  display: grid;
+  gap: var(--space-4);
+}
+.direction-generate textarea {
+  resize: vertical;
+}
+.direction-sources {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.direction-sources button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-1) var(--space-2);
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-xs);
+  text-align: left;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard);
+}
+.direction-sources button[aria-pressed="true"] {
+  border-color: var(--accent);
+  opacity: 1;
+}
+.direction-sources img {
+  grid-column: 1 / -1;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+}
+.direction-sources span:not(.num) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.direction-model {
+  min-width: 0;
+}
+/* Every image generated for the aspect: a wall, the newest first. */
+.direction-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.direction-gallery > li {
+  display: grid;
+  gap: var(--space-1);
+  align-content: start;
+}
+.direction-gallery button,
+.direction-gallery .direction-pending {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+}
+.direction-gallery button {
+  padding: 0;
+  border: 0;
+  background: var(--board);
+  cursor: zoom-in;
+}
+.direction-gallery img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform var(--motion-fast) var(--ease-standard);
+}
+.direction-gallery button:hover img {
+  transform: scale(1.03);
+}
+.direction-gallery-for {
+  overflow: hidden;
+  font-size: var(--text-xs);
+  opacity: 0.65;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* An image on its way: a slot that breathes until it comes. */
+.direction-pending {
+  display: block;
+  min-height: 0;
+  aspect-ratio: auto;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--u-ink, var(--fg)) 5%, transparent),
+    color-mix(in srgb, var(--u-ink, var(--fg)) 14%, transparent),
+    color-mix(in srgb, var(--u-ink, var(--fg)) 5%, transparent)) 0 0 / 200% 100%;
+  animation: direction-wait 1.4s linear infinite;
+}
+@keyframes direction-wait {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+.direction-view {
+  position: relative;
+}
+.direction-view img {
+  display: block;
+  width: 100%;
+  max-height: 72vh;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  background: var(--board);
+}
+.direction-prev,
+.direction-next {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.direction-prev {
+  left: var(--space-3);
+}
+.direction-next {
+  right: var(--space-3);
+}
+.direction-view-prompt {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-xs);
+  opacity: 0.75;
+  overflow-wrap: anywhere;
+}
+/* The thread grows with the conversation up to the window's height, then
+   scrolls inside: its composer stays in view from the first message. */
+.direction-thread {
+  position: sticky;
+  top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - var(--space-8));
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--u-ink, var(--fg)) 14%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--u-bg, var(--surface)) 86%, var(--shade));
+}
+.direction-thread > header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 52px;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  border-bottom: 1px solid color-mix(in srgb, var(--u-ink, var(--fg)) 10%, transparent);
+}
+.direction-thread h3 {
+  margin: 0;
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.direction-agent {
+  flex: 1;
+  font-size: var(--text-xs);
+  opacity: 0.6;
+}
+.direction-messages {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 160px;
+  padding: var(--space-4);
+  overflow-y: auto;
+}
+/* An empty thread offers its first questions, in one click. */
+.direction-starters {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: auto;
+}
+.direction-starter {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--u-ink, var(--fg)) 16%, transparent);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--motion-fast) var(--ease-standard);
+}
+.direction-starter:hover,
+.direction-starter:focus-visible {
+  border-color: var(--u-accent, var(--accent));
+}
+.direction-bubble {
+  max-width: 94%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--u-ink, var(--fg)) 7%, transparent);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.direction-bubble.is-user {
+  align-self: flex-end;
+  border-bottom-right-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--u-accent, var(--accent)) 22%, transparent);
+  white-space: pre-wrap;
+}
+.direction-answer {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+}
+.direction-answer .direction-bubble {
+  border-bottom-left-radius: var(--radius-xs);
+}
+.direction-bubble .md {
+  font-size: inherit;
+}
+.direction-bubble.is-waiting {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  opacity: 0.8;
+}
+.direction-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.direction-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: direction-dot 1.2s ease-in-out infinite;
+}
+.direction-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.direction-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes direction-dot {
+  0%, 80%, 100% { opacity: 0.25; }
+  40% { opacity: 1; }
+}
+.direction-steps {
+  max-width: 100%;
+  font-size: var(--text-xs);
+  opacity: 0.7;
+}
+.direction-steps summary,
+.direction-prompt summary {
+  cursor: pointer;
+}
+.direction-steps ol {
+  display: grid;
+  gap: 2px;
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
+}
+.direction-steps li {
+  overflow-wrap: anywhere;
+}
+.direction-steps li.is-note {
+  font-style: italic;
+}
+/* An image proposal costs money until it is paid or set aside: amber. */
+.direction-proposal {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--warn) 6%, transparent);
+  font-size: var(--text-sm);
+}
+.direction-proposal:not(.is-proposed) {
+  border-color: color-mix(in srgb, var(--u-ink, var(--fg)) 12%, transparent);
+  background: transparent;
+}
+.direction-proposal header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.direction-proposal-what {
+  font-weight: 600;
+}
+.direction-price {
+  color: var(--warn);
+  white-space: nowrap;
+}
+.direction-why {
+  margin: 0;
+  opacity: 0.8;
+}
+.direction-prompt {
+  font-size: var(--text-xs);
+}
+.direction-prompt summary {
+  opacity: 0.7;
+}
+.direction-prompt textarea {
+  width: 100%;
+  margin-top: var(--space-2);
+  resize: vertical;
+  font-size: var(--text-xs);
+}
+.direction-proposal-settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.direction-proposal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.direction-proposal-images {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.direction-proposal-images > li {
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+}
+.direction-proposal-images button {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: var(--board);
+  cursor: zoom-in;
+}
+.direction-proposal-images img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.direction-set-aside {
+  margin: 0;
+  font-size: var(--text-xs);
+  opacity: 0.55;
+}
+.direction-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-top: 1px solid color-mix(in srgb, var(--u-ink, var(--fg)) 10%, transparent);
+}
+/* While the agent answers, the send button stops it: a filled square. */
+.direction-stop svg rect {
+  fill: currentColor;
+}
+.direction-composer textarea {
+  flex: 1;
+  max-height: 9em;
+  resize: none;
+  font-size: var(--text-sm);
+}
+@media (max-width: 1100px) {
+  .direction {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .direction-thread {
+    position: static;
+    max-height: 70vh;
+  }
+}
+
+/* The typography: each family in its own faces, set in the game's texts. */
+.lookdev-type-bar {
+  display: flex;
+  margin-bottom: var(--space-5);
+}
+.lookdev-sample {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: inherit;
+}
+.lookdev-family {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border: 1px solid color-mix(in srgb, var(--u-ink, var(--fg)) 12%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--u-bg, var(--surface)) 80%, var(--shade));
+}
+.lookdev-family + .lookdev-family {
+  margin-top: var(--space-4);
+}
+.lookdev-family-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
+}
+.lookdev-family-aa {
+  font-size: var(--text-4xl);
+  line-height: 1;
+  color: var(--u-accent, var(--accent));
+}
+.lookdev-family-head h3 {
+  margin: 0;
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  line-height: 1.1;
+}
+.lookdev-family-head p {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+  opacity: 0.65;
+}
+.lookdev-faces {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lookdev-face {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3) 0;
+  border-top: 1px solid color-mix(in srgb, var(--u-ink, var(--fg)) 8%, transparent);
+}
+.lookdev-face-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+}
+.lookdev-face-meta .num {
+  opacity: 0.65;
+}
+.lookdev-face-file {
+  margin-left: auto;
+  opacity: 0.5;
+  overflow-wrap: anywhere;
+}
+.lookdev-face-sample {
+  margin: 0;
+  font-size: var(--text-2xl);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.lookdev-glyphs {
+  display: block;
+  font-size: var(--text-lg);
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  opacity: 0.8;
+  overflow-wrap: anywhere;
+}
+.lookdev-scale {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lookdev-scale li {
+  display: grid;
+  grid-template-columns: 3em minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--space-4);
+  padding: var(--space-2) 0;
+  border-top: 1px solid color-mix(in srgb, var(--u-ink, var(--fg)) 8%, transparent);
+}
+.lookdev-scale-size {
+  font-size: var(--text-xs);
+  opacity: 0.65;
+}
+.lookdev-scale-sample {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.3;
+}
+.lookdev-scale li > .num:last-child {
+  font-size: var(--text-xs);
+  opacity: 0.65;
 }
 .lookdev-grid {
   display: grid;
@@ -7334,6 +8504,9 @@ details.more .more-body {
 .lookdev-live {
   position: relative;
   display: grid;
+  /* One track of definite size: the image's `max-height: 100%` resolves
+     against it, and a whole device screen fits instead of overflowing. */
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   place-items: center;
   min-height: 0;
   padding: var(--space-6);
@@ -7347,16 +8520,11 @@ details.more .more-body {
   object-fit: contain;
   border-radius: var(--radius-sm);
 }
-/* A simulated screen: the image pixel for pixel, scrolling if need be; auto
-   margins center it when it fits, and pin it to the edge when it does not. */
-.lookdev-live.is-device {
-  place-items: start;
-  overflow: auto;
-}
+/* A device screen: the whole screen, fitted to the stage, in its bezel. */
 .lookdev-live.is-device img {
-  max-width: none;
-  max-height: none;
-  margin: auto;
+  border: var(--space-2) solid var(--surface-hover);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 0 0 1px var(--border-neutral);
 }
 .lookdev-live.can-orbit {
   cursor: grab;
@@ -7501,4 +8669,85 @@ details.more .more-body {
   padding: 0;
   list-style: none;
   font-size: var(--text-xs);
+}
+
+/* Comments on the screen's elements: the composer under the inspector's
+   header, the list at the bottom of the side column. */
+.screen-comment-open[aria-pressed="true"] {
+  color: var(--accent-ink);
+  background: var(--accent-tint);
+}
+.screen-composer {
+  display: grid;
+  gap: var(--space-2);
+}
+.screen-composer textarea {
+  width: 100%;
+  resize: vertical;
+}
+.screen-composer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.screen-composer-actions > .badge {
+  margin-right: auto;
+}
+.screen-comment-list {
+  margin: 0;
+  padding: var(--space-2);
+  list-style: none;
+  display: grid;
+  gap: var(--space-1);
+  max-height: 320px;
+  overflow: auto;
+}
+.screen-comment {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-warm);
+}
+.screen-comment.is-selected {
+  border-color: var(--accent);
+}
+.screen-comment-pick {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  padding: 0;
+  appearance: auto;
+  accent-color: var(--accent);
+}
+.screen-comment-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.screen-comment-on {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.screen-comment-text {
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.screen-comment > .status,
+.screen-comment > .badge {
+  flex: none;
 }

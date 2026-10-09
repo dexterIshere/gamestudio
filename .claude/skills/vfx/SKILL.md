@@ -157,6 +157,6 @@ Everything is local and free. A **painted material** (a flame texture, a
 glyph) can come from `generate_image` (paid, explicit agreement) and enter
 through `inputs`: `tex("glyph", u, v)` distorts it, scrolls it, dissolves it.
 Motion is always computed: never animation by diffusion. Adapted from
-`game-vfx-workflow` (mr-mak-workspace, MIT — see `THIRD_PARTY_NOTICES.md`). See
+`game-vfx-workflow` (mr-mak-workspace, MIT — see `docs/THIRD_PARTY_NOTICES.md`). See
 `sheet-split` (importing an existing flipbook:
 `import_sheet(rows=…, columns=…)`), `visual-review`, `animation`.

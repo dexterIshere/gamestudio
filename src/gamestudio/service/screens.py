@@ -12,25 +12,36 @@ result suits them. The branch lives in its own checkout (`git worktree`, under
 and the Godot they have open on it -- does not move. Each edit is a commit;
 "undo" removes the last one.
 
-The editor's render stays in its workspace (`preview.png`, and the survey of
-the Controls `nodes.json`, see `godot/render_scene.gd`): it shows the branch,
-not the game as it is -- that remains the card's "Current render".
+Showing a screen creates nothing: until its first edit, the render is the
+game's own folder -- even when a branch already exists, as long as it holds no
+edit. The branch and its checkout are made by the first edit, and from then on
+the render shows the branch. It stays in the workspace
+(`preview.png`, and the survey of the Controls `nodes.json`, see
+`godot/render_scene.gd`).
 """
 
 from __future__ import annotations
 
 import json
+import logging
+import re
 import shutil
 import subprocess
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from ..godot.tscn_edit import Scene, SceneEditError
 from ..store.folders import project_paths
-from . import cards, documents, renders, survey
+from . import cards, documents, preview_data, renders, survey
 from .context import studio
 from .errors import NotFound, ServiceError
+
+logger = logging.getLogger("gamestudio.screens")
+
+# A scene cited in a card's text: `client/scenes/hud/top_bar.tscn`, `res://…`.
+CITED_SCENE = re.compile(r"(?:res:)?[\w./-]*[\w-]+\.tscn")
 
 # The sections whose cards can be edited: a screen, or a prop (button, arrow,
 # frame) retouched on its own. Each has its branches, its folder, its commit
@@ -270,6 +281,8 @@ def state(project: str, folder: str, name: str) -> dict[str, Any]:
     if not scene:
         render = cards._latest_render(project, folder, name)
         scene = str(render.meta.get("scene") or "") if render is not None else ""
+    if not scene:
+        scene = cited_scene(project, folder, name)
     return {
         "project": project, "folder": folder, "name": name,
         "branch": branch_name(folder, name),
@@ -282,6 +295,21 @@ def state(project: str, folder: str, name: str) -> dict[str, Any]:
         "nodes": [_editable(node, scene) for node in nodes],
         "checkout": str(place.checkout) if place.opened() else "",
     }
+
+
+def cited_scene(project: str, folder: str, name: str) -> str:
+    """The first scene of the game the card's text cites (`res://…`), or ""."""
+    try:
+        text = documents.read_document(project, name, folder)["text"]
+    except (NotFound, ServiceError):
+        return ""
+    for found in CITED_SCENE.findall(text):
+        candidate = "res:" + found if found.startswith("//") else found
+        try:
+            return str(renders.resolve_scene(project, candidate)["res_path"])
+        except (NotFound, ServiceError):
+            continue
+    return ""
 
 
 def _editable(node: dict[str, Any], scene: str) -> dict[str, Any]:
@@ -297,39 +325,93 @@ def _editable(node: dict[str, Any], scene: str) -> dict[str, Any]:
 
 
 def open_screen(project: str, folder: str, name: str, scene: str = "") -> dict[str, Any]:
-    """Open a card's screen for editing: its branch, its checkout, a first render.
+    """Show a card's screen, ready to edit: a render and the survey of its Controls.
 
     `scene`: the screen's scene (`res://…` or from the game root); by default,
-    the one of the card's current render. The branch starts from the game's
-    current commit; if already open, it is reused as is.
+    the one already shown, else the one of the card's current render. Nothing
+    is created: the branch is made by the first edit. Once it exists, the
+    render shows it.
     """
     folder, name = _card(project, folder, name)
     place = _Place(project, folder, name)
-    repo = _repo(place.game)
+    _repo(place.game)
     saved = place.load()
     if not scene:
         scene = str(saved.get("scene") or "") or state(project, folder, name)["scene"]
     if not scene:
         raise ServiceError("no scene given: choose the screen to edit")
     target = renders.resolve_scene(project, scene)
-    branch = branch_name(folder, name)
-    if not place.opened():
-        _git(repo, "worktree", "prune", check=False)
-        place.dir.mkdir(parents=True, exist_ok=True)
-        exists = bool(_git(repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}",
-                           check=False))
-        if exists:
-            _git(repo, "worktree", "add", str(place.checkout), branch)
-        else:
-            _git(repo, "worktree", "add", "-b", branch, str(place.checkout), "HEAD")
-        if not saved.get("base"):
-            saved["base"] = _git(place.checkout, "rev-parse", "HEAD")
     saved.update({"scene": target["res_path"], "godot": target["godot"]["path"],
-                  "folder": folder, "branch": branch})
-    _warm_cache(place, repo, target)
+                  "folder": folder, "branch": branch_name(folder, name)})
+    if place.opened():
+        _follow_game(place, _repo(place.game), saved)
     place.save(saved)
     _render(project, folder, name, place)
     return state(project, folder, name)
+
+
+def _edited(place: _Place) -> bool:
+    """Whether the screen's branch holds edits: only then is it what gets drawn."""
+    return place.opened() and bool(_commits(place, str(place.load().get("base") or "")))
+
+
+def _refuse_pending(place: _Place, repo: Path) -> None:
+    """The first edit waits for the game's uncommitted work to be committed.
+
+    The branch starts from the last commit: an edit there would show -- and
+    later merge -- a screen other than the one the user sees.
+    """
+    saved = place.load()
+    pending = _pending(repo, place.game / str(saved.get("godot") or "."))
+    if pending:
+        raise ServiceError(
+            f"the game has uncommitted changes ({pending} file(s)): the edit goes on a branch "
+            "that starts from the last commit, without them -- commit them first")
+
+
+def _open_branch(place: _Place, folder: str, name: str) -> None:
+    """The screen's branch and its checkout, made at its first edit.
+
+    The branch starts from the game's last commit: work left uncommitted is
+    not in it, and the screen would no longer be the one shown -- refused.
+    """
+    repo = _repo(place.game)
+    _refuse_pending(place, repo)
+    saved = place.load()
+    branch = branch_name(folder, name)
+    _git(repo, "worktree", "prune", check=False)
+    place.dir.mkdir(parents=True, exist_ok=True)
+    exists = bool(_git(repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}",
+                       check=False))
+    if exists:
+        _git(repo, "worktree", "add", str(place.checkout), branch)
+    else:
+        _git(repo, "worktree", "add", "-b", branch, str(place.checkout), "HEAD")
+    if not saved.get("base"):
+        saved["base"] = _git(place.checkout, "rev-parse", "HEAD")
+    _follow_game(place, repo, saved)
+    _warm_cache(place, repo, renders.resolve_scene(place.project, str(saved["scene"]),
+                                                   str(saved.get("godot") or "")))
+    place.save(saved)
+
+
+def _pending(repo: Path, folder: Path) -> int:
+    """How many tracked files of the game's folder differ from its last commit."""
+    found = _git(repo, "status", "--porcelain", "--untracked-files=no", "--", str(folder),
+                 check=False)
+    return len(found.splitlines())
+
+
+def _follow_game(place: _Place, repo: Path, saved: dict[str, Any]) -> None:
+    """A branch with no edit yet moves to the game's current commit: what the
+    user committed since it was opened is then in it."""
+    head = _git(repo, "rev-parse", "HEAD")
+    if not saved.get("base") or saved["base"] == head:
+        return
+    if _git(place.checkout, "rev-parse", "HEAD") != saved["base"]:
+        return
+    _git(place.checkout, "merge", "--ff-only", head)
+    saved["base"] = head
 
 
 def _warm_cache(place: _Place, repo: Path, target: dict[str, Any]) -> None:
@@ -356,12 +438,26 @@ def _render_settings(project: str, folder: str, name: str, scene: str) -> dict[s
 def _render(project: str, folder: str, name: str, place: _Place) -> None:
     saved = place.load()
     repo = _repo(place.game)
+    # Before the first edit, the game's own folder; then the branch.
+    root = place.root_in_checkout(repo) if _edited(place) else None
     target = renders.resolve_scene(project, str(saved["scene"]), str(saved.get("godot") or ""),
-                                   root=place.root_in_checkout(repo))
+                                   root=root)
     nodes = place.dir / f".{NODES_NAME}"
     output = place.dir / f".{PREVIEW_NAME}"
-    drawn = renders.render_png(target, output, nodes=nodes,
-                               **_render_settings(project, folder, name, saved["scene"]))
+    try:
+        drawn = renders.render_png(target, output, nodes=nodes,
+                                   **_render_settings(project, folder, name, saved["scene"]))
+    except ServiceError as exc:
+        # The branch starts from the last commit: work left uncommitted in the
+        # game is not in it, and the card's render may depend on it.
+        pending = _pending(repo, place.game / str(saved.get("godot") or ".")) \
+            if _edited(place) else 0
+        if pending:
+            raise ServiceError(
+                f"{exc}\nThe branch starts from the game's last commit, and the game has "
+                f"uncommitted changes ({pending} file(s)): commit them, "
+                "then open this screen again") from exc
+        raise
     output.replace(place.preview)
     nodes.replace(place.nodes)
     saved.update({"rendered_at": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -370,7 +466,7 @@ def _render(project: str, folder: str, name: str, place: _Place) -> None:
 
 
 def render(project: str, folder: str, name: str) -> dict[str, Any]:
-    """Redraw the screen from its branch. Free, local."""
+    """Redraw the screen: from its branch, or from the game before the first edit. Free."""
     folder, name = _card(project, folder, name)
     place = _require(project, folder, name)
     _render(project, folder, name, place)
@@ -379,8 +475,8 @@ def render(project: str, folder: str, name: str) -> dict[str, Any]:
 
 def _require(project: str, folder: str, name: str) -> _Place:
     place = _Place(project, folder, name)
-    if not place.opened() or not place.load().get("scene"):
-        raise ServiceError("the screen is not open for editing: open it first (screen_open)")
+    if not place.load().get("scene") or not place.nodes.is_file():
+        raise ServiceError("the screen is not shown yet: show it first (screen_open)")
     return place
 
 
@@ -394,18 +490,20 @@ def _node(place: _Place, path: str) -> dict[str, Any]:
     raise NotFound(f"element not found on the screen: {path}")
 
 
-def _scene_file(place: _Place, node: dict[str, Any]) -> Path:
-    """The `.tscn` declaring a node, in the branch's checkout."""
+def _scene_file(place: _Place, node: dict[str, Any], *, branch: bool = False) -> Path:
+    """The `.tscn` declaring a node: the one drawn (the game's until the branch
+    holds edits), or the branch's to write it (`branch`)."""
     file = str(node.get("file") or "")
     if not file.endswith(".tscn"):
         raise ServiceError(f"“{node.get('path')}” is created by code: no scene declares it, it is "
                            "changed in its script")
     saved = place.load()
     repo = _repo(place.game)
-    base = place.root_in_checkout(repo) / (saved.get("godot") or ".")
+    root = place.root_in_checkout(repo) if branch or _edited(place) else place.game
+    base = root / (saved.get("godot") or ".")
     path = (base / file.removeprefix("res://")).resolve()
     if not path.is_relative_to(base.resolve()) or not path.is_file():
-        raise NotFound(f"scene not found on the branch: {file}")
+        raise NotFound(f"scene not found: {file}")
     return path
 
 
@@ -467,7 +565,18 @@ def edit(project: str, folder: str, name: str, path: str,
     unknown = sorted(set(changes) - set(allowed))
     if unknown:
         raise ServiceError(f"property not editable here: {', '.join(unknown)}")
-    file = _scene_file(place, node)
+    _scene_file(place, node)
+    if not place.opened():
+        _open_branch(place, folder, name)
+    elif not _edited(place):
+        # A branch opened earlier, still without edits: it catches up with the
+        # game first, and only clean work goes on it.
+        repo = _repo(place.game)
+        _refuse_pending(place, repo)
+        saved = place.load()
+        _follow_game(place, repo, saved)
+        place.save(saved)
+    file = _scene_file(place, node, branch=True)
     original = file.read_text(encoding="utf-8")
     scene = Scene(original)
     local = str(node.get("local") or ".")
@@ -521,5 +630,71 @@ def preview_file(project: str, folder: str, name: str) -> Path:
     folder, name = _card(project, folder, name)
     place = _Place(project, folder, name)
     if not place.preview.is_file():
-        raise NotFound("no render of the screen: open it for editing")
+        raise NotFound("no render of the screen: show it first")
     return place.preview
+
+
+# ------------------------------------------------------------- warming up
+
+# The sections being drawn in the background: (project, folder) -> cards left.
+_warming: dict[tuple[str, str], int] = {}
+_warm_lock = threading.Lock()
+
+
+def warming() -> list[dict[str, Any]]:
+    """The sections whose screens are being drawn in the background, and how many remain."""
+    with _warm_lock:
+        return [{"project": project, "folder": folder, "pending": left}
+                for (project, folder), left in _warming.items()]
+
+
+def warm(project: str, folder: str, *, force: bool = False) -> dict[str, Any]:
+    """Draw, in the background, every screen of a section not drawn yet (all with `force`).
+
+    One at a time, in a thread of its own: the window opens a section and finds
+    its screens drawn, without a click per card. A section already being drawn
+    is not started twice.
+    """
+    _kind(folder)
+    names = [entry["name"] for entry in documents.documents(project, folder)]
+    # A screen drawn before the game's preview data changed is drawn again.
+    data = preview_data.changed_at(project)
+
+    def stale(name: str) -> bool:
+        preview = _Place(project, folder, name).preview
+        return not preview.is_file() or preview.stat().st_mtime < data
+
+    todo = [name for name in names if force or stale(name)]
+    with _warm_lock:
+        if (project, folder) in _warming or not todo:
+            return {"project": project, "folder": folder, "pending": len(todo),
+                    "started": False}
+        _warming[(project, folder)] = len(todo)
+    current = studio()
+
+    def run() -> None:
+        from .context import using
+
+        with using(current):
+            for name in todo:
+                try:
+                    if state(project, folder, name)["scene"]:
+                        open_screen(project, folder, name)
+                except Exception:
+                    logger.exception("screen not drawn in the background: %s", name)
+                with _warm_lock:
+                    _warming[(project, folder)] -= 1
+        with _warm_lock:
+            _warming.pop((project, folder), None)
+
+    threading.Thread(target=run, name=f"warm-{folder}", daemon=True).start()
+    return {"project": project, "folder": folder, "pending": len(todo), "started": True}
+
+
+def warm_all(project: str, *, force: bool = False) -> None:
+    """Draw every editable section of a project in the background."""
+    for folder in KINDS:
+        try:
+            warm(project, folder, force=force)
+        except (NotFound, ServiceError):
+            continue

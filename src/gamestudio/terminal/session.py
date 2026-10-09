@@ -27,6 +27,7 @@ import termios
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -750,6 +751,17 @@ class TerminalManager:
         }
         self._watcher: threading.Thread | None = None
         self._lock = threading.Lock()
+        # Called with a tab's id when its agent hands control back: what waits
+        # for that moment (a queue of requests) is told, instead of polling.
+        self._handovers: list[Callable[[str], None]] = []
+        # The server's loop, for the tabs the studio opens by itself (outside a
+        # request): their output still reaches the Chats window.
+        self.loop: asyncio.AbstractEventLoop | None = None
+
+    def on_handover(self, listener: Callable[[str], None]) -> None:
+        """Call `listener(session_id)` each time an agent hands control back."""
+        if listener not in self._handovers:
+            self._handovers.append(listener)
 
     # ---------------------------------------------------------------- watcher
 
@@ -772,12 +784,23 @@ class TerminalManager:
             with self._lock:
                 sessions = list(self._sessions.values())
             for session in sessions:
+                before = (session.turn or {}).get("state")
                 try:
                     session.poll_turn()
                 except Exception:
                     # An unreadable transcript must not take the watcher down,
                     # let alone the server: the other tabs carry on.
                     logger.exception("unreadable turn (%s)", session.id)
+                    continue
+                if before != "waiting" and (session.turn or {}).get("state") == "waiting":
+                    self._handed_over(session.id)
+
+    def _handed_over(self, session_id: str) -> None:
+        for listener in list(self._handovers):
+            try:
+                listener(session_id)
+            except Exception:
+                logger.exception("handover listener failed (%s)", session_id)
 
     def create(self, *, loop: asyncio.AbstractEventLoop | None,
                command: list[str] | None = None, harness: str = DEFAULT,
@@ -826,7 +849,7 @@ class TerminalManager:
                     f"{MAX_SESSIONS} sessions are already open: close one")
             generated = not title
             session = TerminalSession(
-                loop=loop, title=title or self._next_title(command[0]),
+                loop=loop or self.loop, title=title or self._next_title(command[0]),
                 command=command, cwd=str(root), cols=cols, rows=rows,
                 harness=followed, env_unset=env_unset, effort=effort,
                 identifier=session_id or "", conversation=conversation)
@@ -873,6 +896,10 @@ class TerminalManager:
             session.write(line.encode("utf-8"))
             time.sleep(SUBMIT_DELAY)
             session.write(b"\r")
+            # A submitted message puts the agent to work: its next hand-back is
+            # a change of state, even when it answers in a single message.
+            if session.has_journal():
+                session._set_turn("working")
 
         timer = threading.Timer(delay, keystrokes)
         timer.daemon = True

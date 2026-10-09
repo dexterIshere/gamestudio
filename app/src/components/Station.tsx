@@ -401,7 +401,7 @@ function SkillDialog({ skill, onClose }: { skill: Skill; onClose: () => void }) 
       foot={
         <span className="hint grow">
           {bytes(skill.bytes)} · {t("{files} file(s)", { files: skill.files })}
-          {skill.vendored && t(" · Apache 2.0 — see THIRD_PARTY_NOTICES.md")}
+          {skill.vendored && t(" · Apache 2.0 — see docs/THIRD_PARTY_NOTICES.md")}
         </span>
       }
     >

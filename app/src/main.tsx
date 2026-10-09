@@ -7,6 +7,9 @@
  *
  * On first launch the language is chosen before anything else: the choice
  * reloads the window, which starts again here with a known language.
+ *
+ * Every scroller is kept on whole pixels (`lib/scroll.ts`): under WebKitGTK a
+ * fractional offset blurs everything that scrolls.
  */
 
 import { StrictMode } from "react";
@@ -17,6 +20,7 @@ import { resolveApiBase } from "./api";
 import LanguageChoice from "./components/LanguageChoice";
 import { syncShellLang } from "./lib/host";
 import { langChosen, t } from "./lib/i18n";
+import { snapScrollingToPixels } from "./lib/scroll";
 import { StudioProvider } from "./lib/store";
 import "./styles.css";
 
@@ -31,6 +35,8 @@ const client = new QueryClient({
     },
   },
 });
+
+snapScrollingToPixels();
 
 const root = createRoot(document.getElementById("root")!);
 

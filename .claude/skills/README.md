@@ -36,4 +36,4 @@ skills check` verifies it has not drifted.
 
 | Skill | What it is for |
 | --- | --- |
-| [`img2threejs`](img2threejs/SKILL.md) | Turn an object or character reference image into a quality-gated, animation-ready procedural Three.js model built in code. Use for image-to-3D reconstruction, detail-accurate object rebuilds, stylized/likeness-maximized human characters, sculpt specs, and staged code generation. *(third party — see `THIRD_PARTY_NOTICES.md`)* |
+| [`img2threejs`](img2threejs/SKILL.md) | Turn an object or character reference image into a quality-gated, animation-ready procedural Three.js model built in code. Use for image-to-3D reconstruction, detail-accurate object rebuilds, stylized/likeness-maximized human characters, sculpt specs, and staged code generation. *(third party — see `docs/THIRD_PARTY_NOTICES.md`)* |

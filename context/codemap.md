@@ -39,30 +39,37 @@ repository again. A file without a summary is a header to write.
 - `src/gamestudio/runware/client.py` — HTTP client of the Runware API.
 - `src/gamestudio/runware/errors.py` — Runware API errors, kept apart from the studio's own.
 - `src/gamestudio/service/__init__.py` — Business layer of the studio: what its three interfaces can do.
+- `src/gamestudio/service/activity.py` — What the studio is doing right now: renders under way or queued, agents writing data.
 - `src/gamestudio/service/briefing.py` — The briefing: what an agent must know about the studio before working in it.
 - `src/gamestudio/service/cards.py` — A game design card's workbench: its render, its sketch, its generated images.
 - `src/gamestudio/service/catalog.py` — Reading the studio's state: environment, projects, characters, assets.
 - `src/gamestudio/service/codemap.py` — The code map: what lives where in the repository, one line per file.
+- `src/gamestudio/service/colors.py` — A game's colors: each one written in its files, by aspect of the art direction, and where.
 - `src/gamestudio/service/connections.py` — MCP connections: what is plugged in, where it is declared, and whether it can start.
 - `src/gamestudio/service/context.py` — Root of the studio's data, shared by every interface.
+- `src/gamestudio/service/direction_chat.py` — A conversation on the graphic style or the game type, with an agent the studio drives.
 - `src/gamestudio/service/doctor.py` — The diagnosis: what works here, what is missing, and what to do.
 - `src/gamestudio/service/documents.py` — A project's documents: texts that are written, reread and kept.
 - `src/gamestudio/service/effects.py` — A project's visual effects: specs that are written, sheets that are rendered.
 - `src/gamestudio/service/entities.py` — A world card's workbench: from the card to concepts, then to 3D.
 - `src/gamestudio/service/errors.py` — Business errors of the service layer, translated by each interface.
 - `src/gamestudio/service/folders.py` — Open a folder of the machine as a studio project.
+- `src/gamestudio/service/fonts.py` — A game's typography: its font files, its font resources, the sizes and the texts its scenes use.
 - `src/gamestudio/service/forge.py` — The icon forge: create an icon, a whole set, or redo one -- all the way into the game.
 - `src/gamestudio/service/handoff.py` — Handoff: entrust a piece of work to an agent, which carries it through to the end.
 - `src/gamestudio/service/images.py` — Preview rendering: an asset image scaled down to a reasonable size.
 - `src/gamestudio/service/inbox.py` — The inbox: what one drops into the studio to hand to an agent.
+- `src/gamestudio/service/influences.py` — The art direction's leading aspects: graphic style and game type, their cards and influences.
 - `src/gamestudio/service/jobs.py` — Job queue: state, detail, and a stream of changes.
 - `src/gamestudio/service/library.py` — Readable library: browsing, syncing, filing.
 - `src/gamestudio/service/lookdev.py` — A game's lookdev: each element of its art direction, taken out of the game, shown alone and live.
 - `src/gamestudio/service/meshes.py` — 3D meshes: where they come from, and how they enter the studio.
 - `src/gamestudio/service/poses.py` — Poses: the one imposed on a concept, and the one read from an image.
+- `src/gamestudio/service/preview_data.py` — A game's preview data: fake server answers, so a screen that needs a server renders full.
 - `src/gamestudio/service/produce.py` — Production operations: everything that costs money, everything that takes time.
 - `src/gamestudio/service/prompts.py` — Workbench prompts: what the model is asked for to get a reference.
 - `src/gamestudio/service/renders.py` — A game's renders: one of its scenes, drawn by its own engine, off screen.
+- `src/gamestudio/service/screen_comments.py` — Comments on a screen's elements: what the user asks of each one, sent to an agent in turn.
 - `src/gamestudio/service/screens.py` — The screen editor: a game screen, its Controls, their properties, written on its branch.
 - `src/gamestudio/service/sheets.py` — Import of outside files: a single image, or a sheet to split.
 - `src/gamestudio/service/showcase.py` — The icons and props showcase: each element of the game shown as it is, to be judged.
@@ -120,12 +127,14 @@ repository again. A file without a summary is a header to write.
 - `app/src/chat/logos.tsx` — The agent providers' logos, by harness id.
 - `app/src/chat/meta.ts` — What the Chats window remembers about a tab and the server does not know.
 - `app/src/chat.tsx` — Entry point of the Chats window.
+- `app/src/components/ActivityBar.tsx` — The global progress bar: what the studio is doing, along the status bar.
 - `app/src/components/CardGenerate.tsx` — Generating for a card: text to image, or image to image from its sketch or its render.
 - `app/src/components/CardReferences.tsx` — A card's references: the images the user adds to show what they want.
 - `app/src/components/CardSketch.tsx` — A card's sketch: an Excalidraw, saved with it, exported as PNG for agents.
 - `app/src/components/CardWorkspace.tsx` — The workbench of a game design card: its gestures, its visuals, its text.
 - `app/src/components/ComparePicker.tsx` — Picking an image for a comparator slot.
 - `app/src/components/CompareStage.tsx` — Visual comparator: the four ways to judge two images.
+- `app/src/components/DirectionRoom.tsx` — The graphic style or the game type, in the Universe: its parts, its board of influences, and a thread with an agent.
 - `app/src/components/Handoff.tsx` — Handing a brief to an agent: a new discussion, or a tab already open.
 - `app/src/components/IconForge.tsx` — The icon forge in the showcase: create, redo, split, adopt, and remove.
 - `app/src/components/JobLog.tsx` — A project's job log, and the report of each job.
@@ -134,7 +143,7 @@ repository again. A file without a summary is a header to write.
 - `app/src/components/MeshPreview.tsx` — A mesh in a frame: the studio scene reduced to what it takes to judge.
 - `app/src/components/ModelPicker.tsx` — Choosing an image model: a dropdown, each model with its family, its traits and its price.
 - `app/src/components/Scene3D.tsx` — The studio's 3D scene: a GLB, its shadings, its animations, Blender-style navigation.
-- `app/src/components/ScreenEditor.tsx` — The editor of a game screen: point at an element on the render, change its properties.
+- `app/src/components/ScreenEditor.tsx` — The editor of a game screen: point at an element on the render, say what it should become.
 - `app/src/components/SpriteRender.tsx` — Rendering a 3D mesh into sprite sheets: the "Sprites" panel of the 3D space.
 - `app/src/components/Station.tsx` — The station: what works on this machine, what is connected, what is followed.
 - `app/src/components/Toasts.tsx` — The studio's messages: one card per event, bottom right, above the status bar.
@@ -146,6 +155,7 @@ repository again. A file without a summary is a header to write.
 - `app/src/lib/paths.ts` — Disk paths as the interface shows them: a folder's name, a file revealed on disk.
 - `app/src/lib/queries.ts` — Server reads, in one place.
 - `app/src/lib/scene.ts` — What pages know about a 3D scene without loading three.js.
+- `app/src/lib/scroll.ts` — Whole-pixel scrolling: a scroller left between two pixels is put back on one when it rests.
 - `app/src/lib/store.tsx` — Application-wide state: active project, messages, job queue.
 - `app/src/locales/fr.ts` — French translation of the interface: English text -> French text.
 - `app/src/main.tsx` — Front-end entry point.

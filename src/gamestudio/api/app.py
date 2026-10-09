@@ -38,10 +38,12 @@ from .. import __version__
 from ..jobs.supervisor import WorkerPool
 from ..service import (
     ServiceError,
+    activity,
     briefing,
     cards,
     catalog,
     connections,
+    direction_chat,
     doctor,
     documents,
     effects,
@@ -51,13 +53,16 @@ from ..service import (
     handoff,
     images,
     inbox,
+    influences,
     jobs,
     library,
     lookdev,
     meshes,
     poses,
+    preview_data,
     produce,
     prompts,
+    screen_comments,
     screens,
     sheets,
     showcase,
@@ -89,6 +94,7 @@ _pool = WorkerPool(WORKER_COUNT)
 async def lifespan(_app: FastAPI):
     """Start the workers with the server and stop them with it."""
     _pool.start()
+    terminals.loop = asyncio.get_running_loop()
     try:
         yield
     finally:
@@ -97,8 +103,10 @@ async def lifespan(_app: FastAPI):
         # screen is written to disk first, so that an interrupted tab can be
         # reread -- and resumed -- on the next start, instead of vanishing.
         terminals.shutdown()
-        # The lookdev benches are offscreen Godot instances: they go too.
+        # The lookdev benches are offscreen Godot instances: they go too, and
+        # so does an agent answering in the Universe.
         lookdev.stop_benches()
+        direction_chat.stop_all()
 
 
 app = FastAPI(title="gamestudio", version=__version__, lifespan=lifespan)
@@ -226,6 +234,8 @@ class HandoffRequest(BaseModel):
     effort: str = ""
     # Empty: a new chat. Otherwise the Chats tab to type the request into.
     session: str = ""
+    # What the user writes to the agent, sent after the line pointing to the brief.
+    message: str = ""
 
 
 class CurationRequest(BaseModel):
@@ -580,6 +590,7 @@ async def skill_handoff(request: SkillHandoffRequest) -> dict[str, Any]:
     """Hand the writing of a procedure to an agent, at the studio root."""
     return handoff.send_skill(request.request, harness=request.harness,
                               effort=request.effort, session=request.session,
+                              message=request.message,
                               loop=asyncio.get_running_loop())
 
 
@@ -697,6 +708,7 @@ async def document_handoff(project: str, request: CreateHandoffRequest,
                                names=request.names, axes=request.axes,
                                harness=request.harness,
                                effort=request.effort, session=request.session,
+                               message=request.message,
                                loop=asyncio.get_running_loop())
 
 
@@ -738,13 +750,15 @@ def lookdev_specimen(project: str, specimen: str) -> dict[str, Any]:
 @app.get("/api/projects/{project}/lookdev/{specimen}/frame")
 def lookdev_frame(project: str, specimen: str, params: str = "", preset: str = "",
                   shape: str = "", yaw: float = 0.0, pitch: float = 0.0, zoom: float = 1.0,
-                  scale: float = 1.0, format: str = "jpg", background: str = "") -> Response:
+                  scale: float = 1.0, format: str = "jpg", background: str = "",
+                  device: str = "") -> Response:
     """An image of the specimen, rendered by Godot with these settings.
 
     `params`: the settings, as JSON. The interface asks for the next one as
     soon as the previous has arrived: that is what makes the specimen live.
     `jpg` on the page background (`background`) for the live image, `webp` to
-    keep transparency.
+    keep transparency. `device`: the whole screen of a phone, a tablet or a
+    desktop, the game placed in it as its stretch settings say.
     """
     try:
         values = json.loads(params) if params else {}
@@ -754,7 +768,7 @@ def lookdev_frame(project: str, specimen: str, params: str = "", preset: str = "
         raise ServiceError("unreadable settings: an object is expected")
     shot = lookdev.frame(project, specimen, params=values, preset=preset, shape=shape,
                          yaw=yaw, pitch=pitch, zoom=zoom, scale=scale, format=format,
-                         background=background)
+                         background=background, device=device)
     timings = shot["bench_ms"]
     return Response(shot["image"], media_type=shot["media_type"], headers={
         "Cache-Control": "no-store", "X-Render-Ms": str(shot["ms"]),
@@ -798,7 +812,158 @@ async def lookdev_handoff(project: str, specimen: str,
     """Open an agent chat about the shader: new, or an open tab."""
     return handoff.send_lookdev(project, specimen, harness=request.harness,
                                 effort=request.effort, session=request.session,
+                                message=request.message,
                                 loop=asyncio.get_running_loop())
+
+
+@app.get("/api/projects/{project}/lookdev-aspects/{aspect}/brief")
+def lookdev_aspect_brief(project: str, aspect: str) -> dict[str, Any]:
+    """The brief an agent would get to discuss a whole section of the universe."""
+    return handoff.lookdev_aspect_brief(project, aspect)
+
+
+@app.post("/api/projects/{project}/lookdev-aspects/{aspect}/handoff")
+async def lookdev_aspect_handoff(project: str, aspect: str,
+                                 request: HandoffRequest) -> dict[str, Any]:
+    """Open an agent chat about a whole section of the universe: new, or an open tab."""
+    return handoff.send_lookdev_aspect(project, aspect, harness=request.harness,
+                                       effort=request.effort, session=request.session,
+                                       message=request.message,
+                                       loop=asyncio.get_running_loop())
+
+
+# ------------------------- the graphic style and the universe: influences, thread
+
+
+@app.get("/api/projects/{project}/direction/{aspect}")
+def direction_board(project: str, aspect: str) -> dict[str, Any]:
+    """The aspect's card, its influences with their images, its image proposals."""
+    return influences.board(project, aspect)
+
+
+class InfluenceRequest(BaseModel):
+    """An influence to add (no `influence`) or to change; what is not given is kept."""
+
+    name: str
+    influence: str = ""
+    kind: str = ""
+    keep: str | None = None
+    avoid: str | None = None
+    of: list[str] | None = None
+
+
+@app.post("/api/projects/{project}/direction/{aspect}/influences")
+def direction_influence(project: str, aspect: str, request: InfluenceRequest) -> dict[str, Any]:
+    """Name an influence, or change one."""
+    return influences.set_influence(project, aspect, **request.model_dump())
+
+
+@app.delete("/api/projects/{project}/direction/{aspect}/influences/{influence}")
+def direction_influence_remove(project: str, aspect: str, influence: str) -> dict[str, Any]:
+    """Take an influence off the board. A human gesture: no MCP tool exposes it."""
+    return influences.remove_influence(project, aspect, influence)
+
+
+@app.post("/api/projects/{project}/direction/{aspect}/influences/{influence}/references")
+async def direction_reference(project: str, aspect: str, influence: str,
+                              file: UploadFile = File(...)) -> dict[str, Any]:
+    """Drop an image for an influence: filed with the aspect's card."""
+    data = await file.read()
+    return await run_in_threadpool(influences.add_reference, project, aspect, influence, data,
+                                   file.filename or "reference.png")
+
+
+@app.delete("/api/projects/{project}/direction/{aspect}/influences/{influence}/images")
+def direction_image_remove(project: str, aspect: str, influence: str, key: str) -> dict[str, Any]:
+    """Take an image off an influence. A human gesture: no MCP tool exposes it."""
+    return influences.remove_image(project, aspect, influence, key)
+
+
+class InfluencePathRequest(BaseModel):
+    # A path on disk: what the shell gives for a dragged file. Declared before
+    # its route, or `request` would become a query parameter.
+    path: str
+
+
+@app.post("/api/projects/{project}/direction/{aspect}/influences/{influence}/references/path")
+def direction_reference_path(project: str, aspect: str, influence: str,
+                             request: InfluencePathRequest) -> dict[str, Any]:
+    """File an image from disk for an influence, without moving it."""
+    return influences.add_reference_file(project, aspect, influence, request.path)
+
+
+class ProposalPayRequest(BaseModel):
+    """A proposal paid as proposed, or adjusted; refused without `confirm`."""
+
+    prompt: str | None = None
+    model: str | None = None
+    count: int | None = None
+    confirm: bool = False
+
+
+@app.post("/api/projects/{project}/direction/{aspect}/proposals/{proposal}/pay")
+def direction_pay(project: str, aspect: str, proposal: str,
+                  request: ProposalPayRequest) -> dict[str, Any]:
+    """PAID: generate a proposal's images. The user's gesture: an agent only proposes."""
+    return influences.pay(project, aspect, proposal, **request.model_dump())
+
+
+@app.post("/api/projects/{project}/direction/{aspect}/proposals/{proposal}/dismiss")
+def direction_dismiss(project: str, aspect: str, proposal: str) -> dict[str, Any]:
+    """Set a proposal aside, unpaid."""
+    return influences.dismiss(project, aspect, proposal)
+
+
+@app.get("/api/projects/{project}/direction/{aspect}/chat")
+def direction_thread(project: str, aspect: str) -> dict[str, Any]:
+    """The thread with the agent: its messages, and whether it is answering."""
+    return direction_chat.thread(project, aspect)
+
+
+class DirectionMessage(BaseModel):
+    """A message to the agent, the interface's language for its answer, and its model."""
+
+    text: str
+    lang: str = ""
+    model: str = ""
+
+
+@app.post("/api/projects/{project}/direction/{aspect}/chat")
+def direction_send(project: str, aspect: str, request: DirectionMessage) -> dict[str, Any]:
+    """Write to the agent: it answers in the thread as it goes."""
+    return direction_chat.send(project, aspect, request.text, lang=request.lang,
+                               model=request.model)
+
+
+class DraftRequest(BaseModel):
+    """Images wanted: what to see, the influences to draw on (all with images when empty)."""
+
+    # Before `influences`, which names the field below, not the module, past it.
+    model: str = influences.DEFAULT_MODEL
+    request: str = ""
+    influences: list[str] | None = None
+    count: int = 4
+    lang: str = ""
+
+
+@app.post("/api/projects/{project}/direction/{aspect}/draft")
+def direction_draft(project: str, aspect: str, request: DraftRequest) -> dict[str, Any]:
+    """A model looks at the influences' images and writes the prompt: a proposal, unpaid."""
+    return direction_chat.draft(project, aspect, request=request.request,
+                                sources=request.influences, count=request.count,
+                                model=request.model, lang=request.lang)
+
+
+@app.post("/api/projects/{project}/direction/{aspect}/chat/stop")
+def direction_stop(project: str, aspect: str) -> dict[str, Any]:
+    """Stop the agent's answer where it is."""
+    return direction_chat.stop(project, aspect)
+
+
+@app.post("/api/projects/{project}/direction/{aspect}/chat/reset")
+def direction_reset(project: str, aspect: str) -> dict[str, Any]:
+    """Start a new conversation; the previous one is kept, dated."""
+    return direction_chat.reset(project, aspect)
 
 
 # ------------------------------------------------- a game design card's workbench
@@ -1027,6 +1192,7 @@ async def showcase_handoff(project: str, kind: str, element: str,
     """Open an agent chat about the element: new, or an open tab."""
     return handoff.send_showcase(project, kind, element, harness=request.harness,
                                  effort=request.effort, session=request.session,
+                                 message=request.message,
                                  loop=asyncio.get_running_loop())
 
 
@@ -1056,13 +1222,13 @@ def screen_state(project: str, name: str, folder: str) -> dict[str, Any]:
 @app.post("/api/projects/{project}/documents/{name}/screen/open")
 def screen_open(project: str, name: str, request: ScreenOpenRequest,
                 folder: str) -> dict[str, Any]:
-    """Open the screen for editing: its branch, its copy, a first render."""
+    """Show the screen, ready to edit: its render and its elements."""
     return screens.open_screen(project, folder, name, request.scene)
 
 
 @app.post("/api/projects/{project}/documents/{name}/screen/render")
 def screen_render(project: str, name: str, folder: str) -> dict[str, Any]:
-    """Redraw the screen from its branch."""
+    """Redraw the screen: from its branch, or from the game before the first edit."""
     return screens.render(project, folder, name)
 
 
@@ -1085,6 +1251,98 @@ def screen_undo(project: str, name: str, folder: str) -> dict[str, Any]:
     return screens.undo(project, folder, name)
 
 
+class ScreenCommentRequest(BaseModel):
+    # The element's path in the screen (`nodes.json`), `.` for its root.
+    path: str
+    text: str
+    # True: hand it to the screen's agent at once (queued if it is working).
+    send: bool = False
+    harness: str = "claude"
+
+
+class ScreenCommentsRequest(BaseModel):
+    ids: list[int]
+    harness: str = "claude"
+
+
+@app.get("/api/projects/{project}/documents/{name}/screen/comments")
+def screen_comments_list(project: str, name: str, folder: str) -> dict[str, Any]:
+    """The comments on the screen's elements, and its agent's tab."""
+    return screen_comments.comments(project, folder, name)
+
+
+@app.post("/api/projects/{project}/documents/{name}/screen/comments")
+async def screen_comment_add(project: str, name: str, request: ScreenCommentRequest,
+                             folder: str) -> dict[str, Any]:
+    """Save a comment on an element; with `send`, hand it to the agent too."""
+    added = screen_comments.add(project, folder, name, request.path, request.text)
+    if not request.send:
+        return added
+    loop = asyncio.get_running_loop()
+    sent = await asyncio.to_thread(screen_comments.send, project, folder, name,
+                                   [added["comment"]["id"]], harness=request.harness,
+                                   loop=loop)
+    return {**sent, "comment": added["comment"]}
+
+
+@app.post("/api/projects/{project}/documents/{name}/screen/comments/send")
+async def screen_comments_send(project: str, name: str, request: ScreenCommentsRequest,
+                               folder: str) -> dict[str, Any]:
+    """Hand comments to the screen's agent, in order: one now, the rest queued."""
+    loop = asyncio.get_running_loop()
+    return await asyncio.to_thread(screen_comments.send, project, folder, name, request.ids,
+                                   harness=request.harness, loop=loop)
+
+
+@app.post("/api/projects/{project}/documents/{name}/screen/comments/remove")
+def screen_comments_remove(project: str, name: str, request: ScreenCommentsRequest,
+                           folder: str) -> dict[str, Any]:
+    """Remove comments that are not with the agent."""
+    return screen_comments.remove(project, folder, name, request.ids)
+
+
+@app.get("/api/activity")
+def activity_now(project: str = "") -> dict[str, Any]:
+    """What the studio is doing: renders under way, the data agent at work."""
+    return activity.now(project)
+
+
+class PreviewDataRequest(BaseModel):
+    enabled: bool
+
+
+@app.get("/api/projects/{project}/preview-data")
+def preview_data_state(project: str) -> dict[str, Any]:
+    """The game's preview data: fake server answers for the studio's renders."""
+    return preview_data.state(project)
+
+
+@app.post("/api/projects/{project}/preview-data")
+def preview_data_enable(project: str, request: PreviewDataRequest) -> dict[str, Any]:
+    """Turn the preview data on or off."""
+    return preview_data.set_enabled(project, request.enabled)
+
+
+@app.get("/api/projects/{project}/preview-data/brief")
+def preview_data_brief(project: str) -> dict[str, Any]:
+    """The brief of the agent that writes the preview data, written to disk."""
+    return handoff.preview_brief(project)
+
+
+@app.post("/api/projects/{project}/preview-data/handoff")
+async def preview_data_handoff(project: str, request: HandoffRequest) -> dict[str, Any]:
+    """Hand the preview data to an agent: a new chat, or an open tab."""
+    return handoff.send_preview(project, harness=request.harness, effort=request.effort,
+                                session=request.session, message=request.message,
+                                loop=asyncio.get_running_loop())
+
+
+@app.post("/api/projects/{project}/screens/warm")
+def screens_warm(project: str, folder: str) -> dict[str, Any]:
+    """Draw the section's screens not drawn yet, in the background."""
+    return screens.warm(project, folder)
+
+
 @app.get("/api/projects/{project}/documents/{name}/screen/preview")
 def screen_preview(project: str, name: str, folder: str) -> FileResponse:
     """The screen as its branch draws it."""
@@ -1104,7 +1362,8 @@ def vfx_brief(project: str, name: str) -> dict[str, Any]:
 async def vfx_handoff(project: str, name: str, request: HandoffRequest) -> dict[str, Any]:
     """Hand the concept to an agent, who makes it in Godot."""
     return handoff.send(project, name, harness=request.harness, effort=request.effort,
-                        session=request.session, loop=asyncio.get_running_loop())
+                        session=request.session, message=request.message,
+                        loop=asyncio.get_running_loop())
 
 
 # ------------------------------------------------------- a chat about a card
@@ -1124,6 +1383,7 @@ async def card_handoff(project: str, name: str, request: HandoffRequest,
     """Open an agent chat about the card: new, or an open tab."""
     return handoff.send_card(project, folder, name, harness=request.harness,
                               effort=request.effort, session=request.session,
+                              message=request.message,
                               loop=asyncio.get_running_loop())
 
 
@@ -1290,6 +1550,7 @@ async def entity_animation_handoff(project: str, section: str, name: str,
     """Hand the entity's rig and animations to an agent."""
     return handoff.send_animation(project, section, name, harness=request.harness,
                                   effort=request.effort, session=request.session,
+                                  message=request.message,
                                   loop=asyncio.get_running_loop())
 
 

@@ -48,8 +48,9 @@ def test_an_accented_title_gives_a_plain_file_name() -> None:
 
 def test_the_offered_templates_are_the_service_ones(isolated_studio: Studio) -> None:
     ids = [entry["id"] for entry in documents.templates()]
-    assert ids == ["blank", "character", "world", "direction", "mood", "note", "idea",
-                   "devlog", "mechanic", "interface", "icon", "prop", "vfx", "card", "todo"]
+    assert ids == ["blank", "character", "world", "direction", "mood", "style", "gameplay",
+                   "setting", "lore", "influences", "note", "idea", "devlog", "mechanic",
+                   "interface", "icon", "prop", "vfx", "card", "todo"]
     assert all(entry["label"] for entry in documents.templates())
 
 

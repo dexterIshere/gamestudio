@@ -6,9 +6,9 @@ description = "Game asset studio: world card -> concepts -> 3D mesh -> rig and a
 requires-python = ">=3.11"
 # The studio is under PolyForm Shield; the scripts run inside Blender
 # (`src/gamestudio/blender/bl_*.py`) are under GPL 3.0 or later. Details, and
-# the third-party material that keeps its own licence: THIRD_PARTY_NOTICES.md.
+# the third-party material that keeps its own licence: docs/THIRD_PARTY_NOTICES.md.
 license = "LicenseRef-PolyForm-Shield-1.0.0 AND GPL-3.0-or-later"
-license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md", "src/gamestudio/blender/LICENSE"]
+license-files = ["LICENSE", "docs/THIRD_PARTY_NOTICES.md", "src/gamestudio/blender/LICENSE"]
 dependencies = [
     "httpx>=0.27",
     "pydantic>=2.7",

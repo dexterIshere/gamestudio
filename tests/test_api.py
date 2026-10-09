@@ -252,6 +252,7 @@ def test_a_card_s_concepts_wait_for_confirmation(client):
 # parameter: the agent bubble would get a 422.
 HANDOFFS = [
     ("/api/projects/trial/lookdev/water/handoff", "send_lookdev", {}),
+    ("/api/projects/trial/lookdev-aspects/colors/handoff", "send_lookdev_aspect", {}),
     ("/api/projects/trial/showcase/icons/sword/handoff", "send_showcase", {}),
     ("/api/projects/trial/vfx/fire/handoff", "send", {}),
     ("/api/projects/trial/documents/bar/handoff?folder=design/interface",
@@ -279,6 +280,31 @@ def test_a_handoff_receives_the_agent_choice_as_json(
     assert response.status_code == 200, response.text
     assert received and received[0]["harness"] == "codex"
     assert received[0]["effort"] == "high" and received[0]["session"] == "tab-2"
+
+
+def test_the_art_direction_thread_and_draft_receive_json(client, monkeypatch: pytest.MonkeyPatch):
+    """The model and the influences come in the body, as the Universe sends them."""
+    received: dict[str, dict] = {}
+
+    def sent(project, aspect, text, **options):
+        received["send"] = {"text": text, **options}
+        return {"messages": []}
+
+    def drafted(project, aspect, **options):
+        received["draft"] = options
+        return {"id": "p-1"}
+
+    monkeypatch.setattr(service.direction_chat, "send", sent)
+    monkeypatch.setattr(service.direction_chat, "draft", drafted)
+    response = client.post("/api/projects/trial/direction/style/chat",
+                           json={"text": "hello", "lang": "fr", "model": "haiku"})
+    assert response.status_code == 200, response.text
+    assert received["send"] == {"text": "hello", "lang": "fr", "model": "haiku"}
+    response = client.post("/api/projects/trial/direction/game/draft",
+                           json={"request": "a planet", "influences": ["civ"], "count": 2})
+    assert response.status_code == 200, response.text
+    assert received["draft"] == {"request": "a planet", "sources": ["civ"], "count": 2,
+                                 "model": "runware:100@1", "lang": ""}
 
 
 def test_an_empty_prompt_answers_400(client):

@@ -21,12 +21,23 @@
 ##   and framed. Built once, it serves all its shaders.
 ## - `{"op": "focus", "shader": "res://…"}`: on the staged object, select the
 ##   materials that use this shader; they are the ones receiving the settings.
+## - `{"op": "screen", "shader": "res://…", "scene": "res://…", "nodes": [...],
+##   "size": [w, h]}`: a device screen, for an interface shader. The scene of
+##   a use is instantiated in the game's area of that screen, its anchors
+##   placing it as in the game; the materials of `nodes` (paths from its root)
+##   receive the settings. Without a scene, the template rectangle sits in the
+##   middle. Black bars fill what the game leaves of the screen.
 ## - `{"op": "frame", "params": {...}, "yaw": 30, "pitch": 15, "zoom": 1,
 ##   "scale": 1, "format": "jpg", "background": "#0b0d12"}`: apply the
 ##   settings and render an image, in base64 (`data`). `jpg` is fast and
 ##   opaque, on the given background; `webp` keeps an interface's
-##   transparency, for a thumbnail. An image's settings do not survive the
+##   transparency, for a thumbnail; `png` is exact, for a sky behind a page.
+##   An image's settings do not survive the
 ##   next one: what it does not give again returns to its starting value.
+##   With `"screen": {"size": [w, h], "logical": [w, h], "content": [x, y, w, h]}`
+##   it renders a device: `size` pixels, the game's units over the whole
+##   screen, and the game's area in them; for a material or a sky, only
+##   `size` (the camera's format).
 ## - `{"op": "ping"}`, `{"op": "quit"}`.
 ##
 ## A shader is reread from its file on each load: changed in the game, it shows
@@ -82,6 +93,11 @@ var _camera: Camera3D
 var _rect: ColorRect
 var _base := Vector2i(512, 512)
 var _frame_distance := 2.6
+# A device screen (`screen`): the game's area in it, its background, and the
+# geometry of the last image, whose change lets the layout settle first.
+var _screen_area: Control
+var _screen_fill: ColorRect
+var _screen_geometry := ""
 
 
 func _initialize() -> void:
@@ -204,8 +220,10 @@ func _dispatch(line: String) -> void:
 			_reply(await _stage_object(command))
 		"focus":
 			_reply(_focus(command))
+		"screen":
+			_reply(_screen(command))
 		"frame":
-			_reply(_frame(command))
+			_reply(await _frame(command))
 		"quit":
 			_reply({"ok": true})
 			quit(0)
@@ -232,6 +250,11 @@ func _clear() -> void:
 	_pivot = null
 	_camera = null
 	_rect = null
+	_screen_area = null
+	_screen_fill = null
+	_screen_geometry = ""
+	_view.size_2d_override = Vector2i.ZERO
+	_view.size_2d_override_stretch = false
 
 
 ## The shader, reread from its file: the one already in memory is updated in
@@ -255,16 +278,9 @@ func _load(command: Dictionary) -> Dictionary:
 	var size = command.get("size", [])
 	match _kind:
 		"canvas_item":
-			var w := 256
-			var h := 256
-			if typeof(size) != TYPE_ARRAY or size.size() != 2:
-				# An interface shader that knows its size often declares it.
-				var own = RenderingServer.shader_get_parameter_default(shader.get_rid(), "node_size")
-				size = [own.x, own.y] if own is Vector2 else []
-			if typeof(size) == TYPE_ARRAY and size.size() == 2:
-				w = clampi(int(size[0]), 8, 2048)
-				h = clampi(int(size[1]), 8, 2048)
-			_base = Vector2i(w, h)
+			_base = _template_size(shader, size)
+			var w := _base.x
+			var h := _base.y
 			_stage = Control.new()
 			_rect = ColorRect.new()
 			_rect.size = Vector2(w, h)
@@ -338,6 +354,111 @@ func _sky_3d() -> Node3D:
 	_camera.fov = 70
 	_pivot.add_child(_camera)
 	return stage
+
+
+## The template rectangle of an interface shader: the given size, else the
+## `node_size` the shader declares, else a square.
+func _template_size(shader: Shader, size) -> Vector2i:
+	if typeof(size) != TYPE_ARRAY or size.size() != 2:
+		# An interface shader that knows its size often declares it.
+		var own = RenderingServer.shader_get_parameter_default(shader.get_rid(), "node_size")
+		size = [own.x, own.y] if own is Vector2 else []
+	if typeof(size) == TYPE_ARRAY and size.size() == 2:
+		return Vector2i(clampi(int(size[0]), 8, 2048), clampi(int(size[1]), 8, 2048))
+	return Vector2i(256, 256)
+
+
+# ------------------------------------------------------------ device screen
+
+
+func _screen(command: Dictionary) -> Dictionary:
+	var path := str(command.get("shader", ""))
+	var shader := _shader(path)
+	if shader == null:
+		return {"ok": false, "error": "shader not found: " + path}
+	_clear()
+	_kind = "screen"
+	var root := Control.new()
+	var bars := ColorRect.new()
+	bars.color = Color.BLACK
+	bars.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_child(bars)
+	_screen_area = Control.new()
+	_screen_area.clip_contents = true
+	root.add_child(_screen_area)
+	_screen_fill = ColorRect.new()
+	_screen_fill.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_screen_area.add_child(_screen_fill)
+	# In the tree before the scene: its scripts start as they do in the game.
+	_stage = root
+	_view.add_child(root)
+	var found := []
+	var scene_path := str(command.get("scene", ""))
+	if scene_path.is_empty():
+		_material = ShaderMaterial.new()
+		_material.shader = shader
+		_base = _template_size(shader, command.get("size", []))
+		_rect = ColorRect.new()
+		_rect.size = Vector2(_base)
+		_rect.material = _material
+		_screen_area.add_child(_rect)
+		found.append(_material)
+	else:
+		if not ResourceLoader.exists(scene_path):
+			return {"ok": false, "error": "scene not found: " + scene_path}
+		# Reread with its resources: a material saved into the scene shows as saved.
+		var packed = ResourceLoader.load(scene_path, "", ResourceLoader.CACHE_MODE_REPLACE_DEEP)
+		if not packed is PackedScene:
+			return {"ok": false, "error": "not a scene: " + scene_path}
+		var instance: Node = packed.instantiate()
+		_screen_area.add_child(instance)
+		for held in command.get("nodes", []):
+			var node: Node = instance if str(held) == instance.name \
+				else instance.get_node_or_null(NodePath(str(held)))
+			if node is CanvasItem and node.material is ShaderMaterial \
+					and node.material.shader != null \
+					and node.material.shader.resource_path == shader.resource_path \
+					and not found.has(node.material):
+				found.append(node.material)
+		if found.is_empty():
+			_collect(instance, shader, found)
+		if found.is_empty():
+			return {"ok": false, "error": "the scene does not use this shader: " + scene_path}
+	for material in found:
+		_materials.append(material)
+	_material = _materials[0]
+	_capture()
+	return {"ok": true, "kind": "screen", "size": [_base.x, _base.y], "materials": found.size(),
+		"uniforms": _uniforms(shader)}
+
+
+## Size the device screen: its pixels, the game's units over it, the game's
+## area in them. A new geometry lets the layout settle (containers sort,
+## scripts follow their size) before the image is drawn.
+func _fit_screen(screen: Dictionary, background: Color) -> bool:
+	var size = screen.get("size", [])
+	var logical = screen.get("logical", size)
+	var area = screen.get("content", [0, 0] + Array(logical))
+	if typeof(size) != TYPE_ARRAY or size.size() != 2 or typeof(logical) != TYPE_ARRAY \
+			or logical.size() != 2 or typeof(area) != TYPE_ARRAY or area.size() != 4:
+		return false
+	_view.size = Vector2i(clampi(int(size[0]), 16, 4096), clampi(int(size[1]), 16, 4096))
+	if _kind != "screen":
+		return true
+	_view.size_2d_override = Vector2i(maxi(1, roundi(logical[0])), maxi(1, roundi(logical[1])))
+	_view.size_2d_override_stretch = true
+	(_stage as Control).size = Vector2(logical[0], logical[1])
+	_screen_area.position = Vector2(area[0], area[1])
+	_screen_area.size = Vector2(area[2], area[3])
+	_screen_fill.color = background
+	if _rect != null:
+		_rect.position = ((_screen_area.size - _rect.size) / 2.0).round()
+	var geometry := JSON.stringify([size, logical, area])
+	if geometry != _screen_geometry:
+		_screen_geometry = geometry
+		for i in 2:
+			await process_frame
+	return true
 
 
 # ------------------------------------------------------------- real object
@@ -527,22 +648,31 @@ func _apply(params: Dictionary) -> void:
 func _frame(command: Dictionary) -> Dictionary:
 	if _stage == null:
 		return {"ok": false, "error": "nothing on the bench"}
-	var params = command.get("params", {})
-	_apply(params if typeof(params) == TYPE_DICTIONARY else {})
 	var format := str(command.get("format", "webp"))
 	var background := Color.html(str(command.get("background", "#0b0d12"))) \
 		if Color.html_is_valid(str(command.get("background", ""))) else Color(0.04, 0.05, 0.07)
 	# An interface thumbnail keeps its transparency; a live image is opaque,
 	# on the background of the page that shows it: nothing is cut out.
-	_view.transparent_bg = _kind == "canvas_item" and format == "webp"
+	_view.transparent_bg = _kind == "canvas_item" and format != "jpg"
 	RenderingServer.set_default_clear_color(background)
 	if _env != null and _env.background_mode == Environment.BG_COLOR:
 		_env.background_color = background
-	var scale := clampf(float(command.get("scale", 1.0)), 0.25, 4.0)
-	_view.size = Vector2i(roundi(_base.x * scale), roundi(_base.y * scale))
-	if _rect != null:
-		_view.size_2d_override = _base
-		_view.size_2d_override_stretch = true
+	var screen = command.get("screen", null)
+	if typeof(screen) == TYPE_DICTIONARY:
+		if not await _fit_screen(screen, background):
+			return {"ok": false, "error": "unreadable screen"}
+	elif _kind == "screen":
+		return {"ok": false, "error": "a device screen needs its size"}
+	else:
+		var scale := clampf(float(command.get("scale", 1.0)), 0.25, 4.0)
+		_view.size = Vector2i(roundi(_base.x * scale), roundi(_base.y * scale))
+		if _rect != null:
+			_view.size_2d_override = _base
+			_view.size_2d_override_stretch = true
+	# After the layout: what a scene's scripts set as it settles does not cover
+	# the settings of this image.
+	var params = command.get("params", {})
+	_apply(params if typeof(params) == TYPE_DICTIONARY else {})
 	if _pivot != null:
 		_pivot.rotation_degrees = Vector3(-float(command.get("pitch", 0.0)),
 			float(command.get("yaw", 0.0)), 0)
@@ -560,6 +690,9 @@ func _frame(command: Dictionary) -> Dictionary:
 	var data: PackedByteArray
 	if format == "jpg":
 		data = image.save_jpg_to_buffer(JPG_QUALITY)
+	elif format == "png":
+		# Lossless: a sky behind a page, where JPEG would smear every star.
+		data = image.save_png_to_buffer()
 	else:
 		format = "webp"
 		data = image.save_webp_to_buffer(true, WEBP_QUALITY)

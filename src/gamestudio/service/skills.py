@@ -186,7 +186,7 @@ def _index_text(entries: list[dict[str, Any]]) -> str:
             link = f"[`{name}`]({name}/{SKILL_FILE})"
             note = entry["description"].replace("|", "\\|")
             if entry["vendored"]:
-                note += " *(third party — see `THIRD_PARTY_NOTICES.md`)*"
+                note += " *(third party — see `docs/THIRD_PARTY_NOTICES.md`)*"
             lines.append(f"| {link} | {note} |")
         lines.append("")
     return "\n".join(lines)

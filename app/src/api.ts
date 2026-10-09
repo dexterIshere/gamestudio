@@ -166,6 +166,11 @@ function shelf(folder: string): string {
   return folder ? `?folder=${encodeURIComponent(folder)}` : "";
 }
 
+/** The route of an aspect of the art direction: its board, its thread. */
+function direction(project: string, aspect: string): string {
+  return `/api/projects/${encodeURIComponent(project)}/direction/${encodeURIComponent(aspect)}`;
+}
+
 /** A document's route; its shelf is added as a parameter (`shelf`). */
 function documentPath(project: string, name: string): string {
   return `/api/projects/${encodeURIComponent(project)}/documents/${encodeURIComponent(name)}`;
@@ -609,6 +614,8 @@ export interface HandoffChoice {
   harness: string;
   effort: string;
   session: string;
+  /** What the user writes to the agent, sent after the line pointing to the brief. */
+  message: string;
 }
 
 /** The brief to realize a VFX concept, as an agent receives it. */
@@ -674,6 +681,57 @@ export interface ScreenCommit {
   subject: string;
   /** An edit made by the studio: only those can be undone here. */
   studio: boolean;
+}
+
+/** What the studio is doing right now: the window's global progress bar. */
+export interface Activity {
+  /** The server's clock (epoch s): elapsed times are measured against it. */
+  now: number;
+  renders: { project: string; scene: string; started_at: number; expected: number }[];
+  /** Sections whose screens are being drawn in the background. */
+  queued: { project: string; folder: string; pending: number }[];
+  /** The agent writing the game's fake data, while it works. */
+  agents: { project: string; id: string; title: string; started_at: number }[];
+}
+
+/** A networked game's fake server answers, served during the studio's renders. */
+export interface PreviewData {
+  project: string;
+  /** The game's scripts that talk to a server: the studio fills data for them by itself. */
+  networked: string[];
+  auto: boolean;
+  /** The agent writing the data, while its tab is open. */
+  agent: { id: string; title: string; working: boolean } | null;
+  enabled: boolean;
+  exists: boolean;
+  routes: string[];
+  setup: string;
+  misses: string[];
+  paths: { folder: string; server: string; setup: string; misses: string };
+}
+
+export interface PreviewBrief extends Brief {
+  routes: number;
+  misses: string[];
+}
+
+/** A comment on a screen element, and where it stands with the screen's agent. */
+export interface ScreenComment {
+  id: number;
+  path: string;
+  name: string;
+  type: string;
+  file: string;
+  text: string;
+  state: "saved" | "queued" | "sent" | "done";
+  created_at: string;
+  sent_at: string;
+}
+
+export interface ScreenComments {
+  comments: ScreenComment[];
+  /** The screen agent's tab, while it is open. */
+  session: TerminalSession | null;
 }
 
 export interface ScreenState {
@@ -981,13 +1039,184 @@ export interface LookdevTheme {
   background: string;
   colors: string[];
   fonts: { file: string; family: string }[];
+  /** The family the page is set in -- the game's default font -- with all its faces. */
+  font: { family: string; faces: { file: string; weight: number; italic: boolean }[] } | null;
   /** The game's sky specimen, used as the area's background. */
   sky: string;
+}
+
+/** A font file as its own tables describe it, and what cites it in the game. */
+export interface LookdevFace {
+  file: string;
+  family: string;
+  /** The style name the font gives itself: `Regular`, `SemiBold Italic`… */
+  style: string;
+  weight: number;
+  italic: boolean;
+  glyphs: number | null;
+  format: string;
+  /** Scenes and scripts citing the file, directly or through a font resource. */
+  uses: number;
+  /** The file behind the font every Control uses by default. */
+  default: boolean;
+}
+
+/** A Godot font resource (`FontVariation`, `SystemFont`, `FontFile` saved as `.tres`). */
+export interface LookdevFontResource {
+  file: string;
+  type: string;
+  base: string;
+  /** Font files or system font names, in the order Godot tries them. */
+  fallbacks: string[];
+  system: string[];
+  features: { tag: string; value: number }[];
+  settings: Record<string, string>;
+}
+
+export interface LookdevTypography {
+  families: { family: string; faces: LookdevFace[] }[];
+  resources: LookdevFontResource[];
+  default: { resource: string; base: string; family: string; size: number | null };
+  /** The sizes the game's scenes, scripts and themes set, smallest first. */
+  sizes: { size: number; count: number; files: string[] }[];
+  /** Texts the game's scenes show, the most frequent first: the specimens. */
+  samples: string[];
+}
+
+/** The aspects of the art direction a color is written for. */
+export type LookdevAspect = "interface" | "materials" | "sky" | "other";
+
+/** Where a color is written: a file, for an aspect, and the names carrying it there. */
+export interface LookdevColorUse {
+  file: string;
+  aspect: LookdevAspect;
+  count: number;
+  /** A property, a theme key, a constant, a shader setting. */
+  names: string[];
+}
+
+export interface LookdevColor {
+  hex: string;
+  /** The times it is written in the game. */
+  count: number;
+  aspects: Partial<Record<LookdevAspect, number>>;
+  uses: LookdevColorUse[];
+}
+
+export interface LookdevPalette {
+  /** The colors written in the game (scenes, scripts, resources, shader settings), the most used first. */
+  colors: LookdevColor[];
+  /** Every color written, counted: the share of each one is its count over this. */
+  total: number;
+  /** The distinct colors, past those listed. */
+  distinct: number;
+}
+
+/** The two aspects that lead the art direction, each with its parts, its influences and its thread. */
+export type DirectionAspect = "style" | "game";
+
+/** A part of an aspect: one card, shown and written in its own section. */
+export interface DirectionPart {
+  id: string;
+  name: string;
+  folder: string;
+  title: string;
+  /** Empty until the card exists. */
+  path: string;
+  text: string;
+  /** What the card starts from when it is first written. */
+  template: string;
+  /** The card exists and says more than its template. */
+  written: boolean;
+}
+
+/** An image of the board: generated for the aspect's card, or dropped with it. */
+export interface DirectionImage {
+  /** `asset:<id>` or `ref:<file>`. */
+  key: string;
+  kind: "generated" | "reference";
+  asset_id?: string;
+  file?: string;
+  path: string;
+  prompt?: string;
+  model?: string;
+}
+
+export interface Influence {
+  id: string;
+  name: string;
+  /** work, game, film, book, artist, movement, place, blend, other. */
+  kind: string;
+  keep: string;
+  avoid: string;
+  /** For a blend: the influences it crosses. */
+  of: string[];
+  images: DirectionImage[];
+  created_at: string;
+}
+
+/** Images an agent proposes to generate for an influence: the user pays them, or not. */
+export interface InfluenceProposal {
+  id: string;
+  influence: string;
+  prompt: string;
+  model: string;
+  count: number;
+  width: number;
+  height: number;
+  reference: string;
+  why: string;
+  status: "proposed" | "queued" | "done" | "failed" | "dismissed";
+  error: string;
+  images: DirectionImage[];
+  created_at: string;
+  cost_usd: number | null;
+}
+
+export interface DirectionBoard {
+  project: string;
+  aspect: DirectionAspect;
+  parts: DirectionPart[];
+  /** Every image generated for the aspect, the newest first; `influence` is empty for the aspect as a whole. */
+  gallery: (DirectionImage & { proposal: string; influence: string })[];
+  /** The board's own card, where its images are filed. */
+  card: { name: string; folder: string; title: string; path: string; text: string };
+  influences: Influence[];
+  proposals: InfluenceProposal[];
+}
+
+/** A step of the agent's work: a tool it called, or what it said on the way. */
+export interface ChatStep {
+  tool?: string;
+  detail?: string;
+  note?: string;
+  at: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  at: string;
+  steps?: ChatStep[];
+  state?: "running" | "done" | "stopped" | "failed";
+  error?: string;
+}
+
+export interface DirectionThread {
+  project: string;
+  aspect: DirectionAspect;
+  running: boolean;
+  session: string;
+  messages: ChatMessage[];
 }
 
 export interface LookdevIndex {
   project: string;
   specimens: LookdevSpecimen[];
+  palette: LookdevPalette;
+  direction: Record<DirectionAspect, { influences: number; written: number; parts: number }>;
+  typography: LookdevTypography;
   theme: LookdevTheme;
 }
 
@@ -995,6 +1224,17 @@ export interface LookdevIndex {
 export interface LookdevBrief extends Brief {
   project: string;
   specimen: string;
+  title: string;
+  section_label: string;
+}
+
+/** The sections of the Universe a discussion can be on as a whole. */
+export type LookdevTopic = "colors" | "typography" | LookdevAspect;
+
+/** The brief of an agent discussion about a whole section of the Universe. */
+export interface LookdevAspectBrief extends Brief {
+  project: string;
+  aspect: LookdevTopic;
   title: string;
   section_label: string;
 }
@@ -1024,11 +1264,21 @@ export interface LookdevPreset {
 }
 
 /** The screen the game is drawn for (`project.godot`): its base size, its stretch mode. */
+/** A device screen a specimen can be seen on, turned the way the game holds it. */
+export interface LookdevDevice {
+  id: "phone" | "tablet" | "desktop";
+  width: number;
+  height: number;
+}
+
 export interface LookdevScreen {
   width: number;
   height: number;
   /** `window/stretch/mode`: `canvas_items`, `viewport` or `disabled`. */
   stretch: string;
+  /** `window/stretch/aspect`: `keep`, `expand`, `keep_width`, `keep_height` or `ignore`. */
+  aspect: string;
+  devices: LookdevDevice[];
 }
 
 /** What a save wrote into the game. */
@@ -1063,16 +1313,18 @@ export interface LookdevFrameQuery {
   pitch?: number;
   zoom?: number;
   scale?: number;
-  /** `jpg`: fast and opaque, on `background`; `webp`: keeps transparency. */
-  format?: "jpg" | "webp";
+  /** `jpg`: fast and opaque, on `background`; `webp`: keeps transparency; `png`: exact. */
+  format?: "jpg" | "webp" | "png";
   /** `#rrggbb`: the background the live image is rendered on. */
   background?: string;
+  /** The whole screen of a device, the game placed in it; `scale` then does not apply. */
+  device?: LookdevDevice["id"];
 }
 
 export function lookdevFrameUrl(project: string, specimen: string, query: LookdevFrameQuery): string {
   const search = new URLSearchParams();
   if (query.params && Object.keys(query.params).length) search.set("params", JSON.stringify(query.params));
-  for (const key of ["preset", "shape", "yaw", "pitch", "zoom", "scale", "format", "background"] as const) {
+  for (const key of ["preset", "shape", "yaw", "pitch", "zoom", "scale", "format", "background", "device"] as const) {
     const value = query[key];
     if (value !== undefined && value !== "") search.set(key, String(value));
   }
@@ -1591,6 +1843,33 @@ export const api = {
       { path, changes }),
   screenUndo: (project: string, folder: string, name: string) =>
     post<ScreenState>(`${documentPath(project, name)}/screen/undo${shelf(folder)}`, {}),
+  activity: (project: string) =>
+    get<Activity>(`/api/activity?project=${encodeURIComponent(project)}`),
+  screensWarm: (project: string, folder: string) =>
+    post<{ pending: number; started: boolean }>(
+      `/api/projects/${encodeURIComponent(project)}/screens/warm?folder=${
+        encodeURIComponent(folder)}`, {}),
+  previewData: (project: string) =>
+    get<PreviewData>(`/api/projects/${encodeURIComponent(project)}/preview-data`),
+  previewDataEnable: (project: string, enabled: boolean) =>
+    post<PreviewData>(`/api/projects/${encodeURIComponent(project)}/preview-data`, { enabled }),
+  previewDataBrief: (project: string) =>
+    get<PreviewBrief>(`/api/projects/${encodeURIComponent(project)}/preview-data/brief`),
+  previewDataHandoff: (project: string, body: HandoffChoice) =>
+    post<PreviewBrief & { session: TerminalSession }>(
+      `/api/projects/${encodeURIComponent(project)}/preview-data/handoff`, body),
+  screenComments: (project: string, folder: string, name: string) =>
+    get<ScreenComments>(`${documentPath(project, name)}/screen/comments${shelf(folder)}`),
+  screenCommentAdd: (project: string, folder: string, name: string, path: string, text: string,
+                     send: boolean) =>
+    post<ScreenComments>(`${documentPath(project, name)}/screen/comments${shelf(folder)}`,
+                         { path, text, send }),
+  screenCommentsSend: (project: string, folder: string, name: string, ids: number[]) =>
+    post<ScreenComments>(`${documentPath(project, name)}/screen/comments/send${shelf(folder)}`,
+                         { ids }),
+  screenCommentsRemove: (project: string, folder: string, name: string, ids: number[]) =>
+    post<ScreenComments>(`${documentPath(project, name)}/screen/comments/remove${shelf(folder)}`,
+                         { ids }),
   // The showcase of icons and props.
   showcase: (project: string, kind: ShowcaseKind) =>
     get<Showcase>(`/api/projects/${encodeURIComponent(project)}/showcase/${kind}`),
@@ -1655,6 +1934,53 @@ export const api = {
   lookdevHandoff: (project: string, specimen: string, body: HandoffChoice) =>
     post<LookdevBrief & { session: TerminalSession }>(`/api/projects/${
       encodeURIComponent(project)}/lookdev/${encodeURIComponent(specimen)}/handoff`, body),
+  directionBoard: (project: string, aspect: DirectionAspect) =>
+    get<DirectionBoard>(`${direction(project, aspect)}`),
+  setInfluence: (project: string, aspect: DirectionAspect, body: {
+    name: string; influence?: string; kind?: string; keep?: string; avoid?: string; of?: string[];
+  }) => post<Influence>(`${direction(project, aspect)}/influences`, body),
+  /** A human gesture: the influence leaves the board, its images stay with the card. */
+  removeInfluence: (project: string, aspect: DirectionAspect, influence: string) =>
+    request<DirectionBoard>(`${direction(project, aspect)}/influences/${encodeURIComponent(influence)}`,
+      { method: "DELETE" }),
+  /** A human gesture: a dropped image no other influence shows is deleted. */
+  removeInfluenceImage: (project: string, aspect: DirectionAspect, influence: string, key: string) =>
+    request<DirectionBoard>(`${direction(project, aspect)}/influences/${encodeURIComponent(influence)}/images?key=${
+      encodeURIComponent(key)}`, { method: "DELETE" }),
+  addInfluenceImage: (project: string, aspect: DirectionAspect, influence: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<DirectionBoard>(
+      `${direction(project, aspect)}/influences/${encodeURIComponent(influence)}/references`,
+      { method: "POST", body: form });
+  },
+  addInfluenceImagePath: (project: string, aspect: DirectionAspect, influence: string, path: string) =>
+    post<DirectionBoard>(
+      `${direction(project, aspect)}/influences/${encodeURIComponent(influence)}/references/path`, { path }),
+  /** PAID: refused without `confirm: true`. */
+  payProposal: (project: string, aspect: DirectionAspect, proposal: string, body: {
+    prompt?: string; model?: string; count?: number; confirm: boolean;
+  }) => post<InfluenceProposal>(`${direction(project, aspect)}/proposals/${encodeURIComponent(proposal)}/pay`, body),
+  dismissProposal: (project: string, aspect: DirectionAspect, proposal: string) =>
+    post<InfluenceProposal>(`${direction(project, aspect)}/proposals/${encodeURIComponent(proposal)}/dismiss`),
+  directionThread: (project: string, aspect: DirectionAspect) =>
+    get<DirectionThread>(`${direction(project, aspect)}/chat`),
+  directionSend: (project: string, aspect: DirectionAspect, text: string, lang: string, model = "") =>
+    post<DirectionThread>(`${direction(project, aspect)}/chat`, { text, lang, model }),
+  /** A model looks at the influences' images and writes the prompt: a proposal, never paid. */
+  draftImages: (project: string, aspect: DirectionAspect, body: {
+    request: string; influences: string[] | null; count: number; model: string; lang: string;
+  }) => post<InfluenceProposal>(`${direction(project, aspect)}/draft`, body),
+  directionStop: (project: string, aspect: DirectionAspect) =>
+    post<DirectionThread>(`${direction(project, aspect)}/chat/stop`),
+  directionReset: (project: string, aspect: DirectionAspect) =>
+    post<DirectionThread>(`${direction(project, aspect)}/chat/reset`),
+  lookdevAspectBrief: (project: string, aspect: LookdevTopic) =>
+    get<LookdevAspectBrief & { text: string }>(`/api/projects/${encodeURIComponent(project)}/lookdev-aspects/${
+      encodeURIComponent(aspect)}/brief`),
+  lookdevAspectHandoff: (project: string, aspect: LookdevTopic, body: HandoffChoice) =>
+    post<LookdevAspectBrief & { session: TerminalSession }>(`/api/projects/${
+      encodeURIComponent(project)}/lookdev-aspects/${encodeURIComponent(aspect)}/handoff`, body),
   /**
    * The brief that hands an agent what to create in the section. Free.
    * `extras.paths`: inbox (or disk) paths; `extras.names`: the names they had.

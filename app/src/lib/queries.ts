@@ -5,9 +5,10 @@
  * invalidates it when a production finishes.
  */
 
+import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  api, type CardGenerateRequest, type ScreenValue, type ShowcaseKind,
+  api, type CardGenerateRequest, type DirectionAspect, type ScreenValue, type ShowcaseKind,
 } from "../api";
 import { updateStatus } from "./host";
 
@@ -382,6 +383,93 @@ export const useScreenNode = (project: string, folder: string, name: string,
     enabled: Boolean(project && folder && name && path),
   });
 
+/** What the studio is doing: followed closely while something runs. */
+export const useActivity = (project: string) =>
+  useQuery({
+    queryKey: ["activity", project],
+    queryFn: () => api.activity(project),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      return data && (data.renders.length || data.queued.length || data.agents.length)
+        ? 1000 : 4000;
+    },
+  });
+
+// The sections already drawn ahead in this window: once per project and section.
+const warmed = new Set<string>();
+
+/** Draw a section's screens in the background as soon as it is shown. */
+export function useWarmScreens(project: string, folder: string, enabled: boolean) {
+  const client = useQueryClient();
+  useEffect(() => {
+    const key = `${project}\u0000${folder}`;
+    if (!enabled || !project || warmed.has(key)) return;
+    warmed.add(key);
+    api.screensWarm(project, folder).then(
+      () => client.invalidateQueries({ queryKey: ["activity"] }),
+      () => warmed.delete(key),
+    );
+  }, [project, folder, enabled, client]);
+}
+
+/** A networked game's preview data (fake server answers). */
+export const usePreviewData = (project: string) =>
+  useQuery({
+    queryKey: ["previewData", project],
+    queryFn: () => api.previewData(project),
+    enabled: Boolean(project),
+    refetchOnWindowFocus: true,
+    // Followed while its agent works: the screen is redrawn when it is done.
+    refetchInterval: (query) => (query.state.data?.agent?.working ? 4000 : false),
+  });
+
+export function usePreviewDataEnable(project: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) => api.previewDataEnable(project, enabled),
+    onSuccess: (data) => client.setQueryData(["previewData", project], data),
+  });
+}
+
+/** The comments on a screen's elements; followed while some are with the agent. */
+export const useScreenComments = (project: string, folder: string, name: string) =>
+  useQuery({
+    queryKey: ["screenComments", project, folder, name],
+    queryFn: () => api.screenComments(project, folder, name),
+    enabled: Boolean(project && folder && name),
+    refetchInterval: (query) =>
+      query.state.data?.comments.some((c) => c.state === "queued" || c.state === "sent")
+        ? 3000 : false,
+  });
+
+type CommentGesture =
+  | { kind: "add"; path: string; text: string; send: boolean }
+  | { kind: "send"; ids: number[] }
+  | { kind: "remove"; ids: number[] };
+
+export function useScreenCommentGesture(project: string, folder: string, name: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (gesture: CommentGesture) => {
+      switch (gesture.kind) {
+        case "add":
+          return api.screenCommentAdd(project, folder, name, gesture.path, gesture.text,
+                                      gesture.send);
+        case "send":
+          return api.screenCommentsSend(project, folder, name, gesture.ids);
+        default:
+          return api.screenCommentsRemove(project, folder, name, gesture.ids);
+      }
+    },
+    onSuccess: (comments) => {
+      client.setQueryData(["screenComments", project, folder, name], comments);
+      // Sending makes the branch: the screen's state changes with it.
+      client.invalidateQueries({ queryKey: ["screen", project, folder, name] });
+      client.invalidateQueries({ queryKey: ["terminal", "sessions"] });
+    },
+  });
+}
+
 type ScreenGesture =
   | { kind: "open"; scene: string }
   | { kind: "render" }
@@ -407,6 +495,8 @@ export function useScreenGesture(project: string, folder: string, name: string) 
     onSuccess: (state) => {
       client.setQueryData(["screen", project, folder, name], state);
       client.invalidateQueries({ queryKey: ["screenNode", project, folder, name] });
+      // A render may have called the preview data's agent.
+      client.invalidateQueries({ queryKey: ["previewData", project] });
     },
   });
 }
@@ -432,6 +522,25 @@ export const useLookdev = (project: string) =>
     queryKey: ["lookdev", project],
     queryFn: () => api.lookdev(project),
     enabled: Boolean(project),
+  });
+
+/** An aspect's board of influences: followed while images are on their way, or while `live`. */
+export const useDirectionBoard = (project: string, aspect: DirectionAspect, live: boolean) =>
+  useQuery({
+    queryKey: ["direction", project, aspect],
+    queryFn: () => api.directionBoard(project, aspect),
+    enabled: Boolean(project),
+    refetchInterval: (query) =>
+      live || query.state.data?.proposals.some((entry) => entry.status === "queued") ? 2000 : false,
+  });
+
+/** The thread with the agent: followed closely while it answers. */
+export const useDirectionThread = (project: string, aspect: DirectionAspect) =>
+  useQuery({
+    queryKey: ["directionThread", project, aspect],
+    queryFn: () => api.directionThread(project, aspect),
+    enabled: Boolean(project),
+    refetchInterval: (query) => (query.state.data?.running ? 500 : false),
   });
 
 /** A specimen in detail: the first read starts the Godot bench (one to two seconds). */

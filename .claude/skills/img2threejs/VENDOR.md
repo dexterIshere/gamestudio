@@ -11,14 +11,14 @@ update would become impossible to review.
 - **Removed when vendoring**: the `.github/`, `assets/` and `forge/tests/`
   folders and the `.gitignore`, `CHANGELOG.md`, `CLAUDE.md`,
   `CONTRIBUTING.md`, `LAB-FINDINGS.md`, `ROADMAP.md` files (see
-  `THIRD_PARTY_NOTICES.md` at the studio root)
+  `docs/THIRD_PARTY_NOTICES.md` in the studio)
 
 ## Updating
 
 The studio modifies no file in this folder. To take an upstream version: fetch
 it separately, remove the three folders and six files above, replace the
 content while keeping this `VENDOR.md`, and update the commit here and in
-`THIRD_PARTY_NOTICES.md`.
+`docs/THIRD_PARTY_NOTICES.md`.
 
 ## What the studio expects from this folder
 

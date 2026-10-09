@@ -18,6 +18,7 @@
       "runtimeArgs": [
         "GAMESTUDIO_TOKEN=local-preview",
         "GAMESTUDIO_WORKERS=0",
+        "GAMESTUDIO_NO_AGENTS=1",
         ".venv/bin/gamestudio",
         "serve",
         "--port",

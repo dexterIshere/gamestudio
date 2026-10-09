@@ -406,7 +406,8 @@ export function Choice({ checked, label, sub, price, badge, disabled, onSelect }
 /** Exclusive modes: what to produce, an image size, a style. */
 export function Seg<T extends string>({ value, options, onChange }: {
   value: T;
-  options: { value: T; label: string }[];
+  /** A glyph as `label` says what it is through `title`, which names the button. */
+  options: { value: T; label: ReactNode; title?: string }[];
   onChange: (value: T) => void;
 }) {
   return (
@@ -416,6 +417,8 @@ export function Seg<T extends string>({ value, options, onChange }: {
           key={option.value}
           type="button"
           aria-pressed={option.value === value}
+          aria-label={option.title}
+          title={option.title}
           onClick={() => onChange(option.value)}
         >
           {option.label}

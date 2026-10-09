@@ -1,6 +1,6 @@
 # gamestudio
 
-*English · [Français](README.fr.md)*
+*English · [Français](docs/README.fr.md)*
 
 A game asset studio: from a world card written in plain language to a rigged
 and animated 3D entity, ready to open in Godot — and rendered into sprite sheets
@@ -13,7 +13,7 @@ card ──► concepts (imposed pose) ──► 3D mesh ───────�
 ```
 
 The repository is in English; the desktop interface speaks English or French.
-[`README.fr.md`](README.fr.md) is the French translation of this file.
+[`docs/README.fr.md`](docs/README.fr.md) is the French translation of this file.
 
 ---
 
@@ -550,7 +550,7 @@ under **PolyForm Shield 1.0.0** (`LICENSE`).
   including to produce the assets of a game that is sold.
 - **Forbidden**: making a product out of it that competes with the studio
   (software, service, plugin), whether free or paid.
-- **Third-party material** keeps its own licence (`THIRD_PARTY_NOTICES.md`).
+- **Third-party material** keeps its own licence (`docs/THIRD_PARTY_NOTICES.md`).
   img2threejs is under Apache 2.0, the scripts run inside Blender under GPL 3.0
   or later, the Outfit and Prompt fonts under OFL 1.1, the agent logos (paths
   from LobeHub lobe-icons) under MIT — the trademarks remain their owners'.
@@ -564,5 +564,5 @@ under **PolyForm Shield 1.0.0** (`LICENSE`).
   it before any commercial use of the LoRA.
 
 For a use the licence does not allow, ask the author for a licence.
-Contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md). Reporting a
-vulnerability: [`SECURITY.md`](SECURITY.md).
+Contributing: [`CONTRIBUTING.md`](.github/CONTRIBUTING.md). Reporting a
+vulnerability: [`SECURITY.md`](.github/SECURITY.md).

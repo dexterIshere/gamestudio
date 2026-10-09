@@ -8,7 +8,7 @@ description: Produce a 3D mesh without paying — build the GLB with img2threejs
 The studio can buy a mesh (Tripo, Hunyuan 3D, TRELLIS through Runware, or
 Tripo P1, P2 and H through the direct Tripo API: $0.15 to $1.25). It can also
 **build one locally**, for free, with `img2threejs` — a workbench vendored in
-`.claude/skills/img2threejs/`, under Apache 2.0 (see `THIRD_PARTY_NOTICES.md`).
+`.claude/skills/img2threejs/`, under Apache 2.0 (see `docs/THIRD_PARTY_NOTICES.md`).
 
 This skill gives the order and the finish line. The img2threejs procedure
 itself is `.claude/skills/img2threejs/SKILL.md`: it is authoritative, and long.

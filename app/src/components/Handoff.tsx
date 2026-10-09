@@ -4,14 +4,16 @@
  * The studio realizes neither a VFX nor an entity's rig: it writes a brief and
  * hands it off. This dialog is the same gesture for every brief: the brief is
  * written on opening (it says what will be sent, and whether anything blocks
- * it), then the user picks the agent and its effort, or the discussion to type
- * it into.
+ * it), then the user writes what they want, and picks the agent and its effort,
+ * or the discussion to type it into. The effort is the last one chosen for that
+ * agent, shared with the Chats window.
  */
 
 import { useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type Brief, type HandoffChoice, type TerminalSession } from "../api";
 import { HARNESS_LOGOS } from "../chat/logos";
+import { readMeta, rememberEffort, validEffort } from "../chat/meta";
 import { focusChat } from "../lib/host";
 import { folderName } from "../lib/paths";
 import { useStudio } from "../lib/store";
@@ -43,6 +45,7 @@ export default function HandoffDialog<B extends Brief>({
   const [session, setSession] = useState(NEW);
   const [harness, setHarness] = useState("claude");
   const [effort, setEffort] = useState("");
+  const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
   const { data: harnesses } = useQuery({
@@ -73,6 +76,16 @@ export default function HandoffDialog<B extends Brief>({
     .filter((entry) => entry.state === "running")
     .sort((a, b) => Number(b.cwd === brief?.godot) - Number(a.cwd === brief?.godot));
   const agent = harnesses?.find((entry) => entry.id === harness);
+
+  // The level last chosen for this agent, once its accepted levels are known.
+  useEffect(() => {
+    if (agent) setEffort(validEffort(agent, readMeta().effort?.[agent.id]));
+  }, [agent]);
+
+  const pickEffort = (level: string) => {
+    setEffort(level);
+    rememberEffort(harness, level);
+  };
   const ready = Boolean(brief) && !blocked && !busy
     && (session !== NEW || Boolean(agent?.available));
 
@@ -80,7 +93,7 @@ export default function HandoffDialog<B extends Brief>({
     setBusy(true);
     setFailure(null);
     try {
-      const done = await submit({ harness, effort, session });
+      const done = await submit({ harness, effort, session, message });
       notify({ kind: "success", title: sent(done.session), body: brief?.path });
       onClose();
       await focusChat(done.session.id);
@@ -142,10 +155,7 @@ export default function HandoffDialog<B extends Brief>({
                   aria-checked={harness === entry.id}
                   disabled={!entry.available}
                   title={entry.available ? entry.detail : entry.reason}
-                  onClick={() => {
-                    setHarness(entry.id);
-                    setEffort("");
-                  }}
+                  onClick={() => setHarness(entry.id)}
                 >
                   <span className="tick" />
                   <span className="harness-logo" aria-hidden="true">
@@ -161,7 +171,7 @@ export default function HandoffDialog<B extends Brief>({
             {agent && agent.effort_levels.length > 0 && (
               <Seg<string>
                 value={effort}
-                onChange={setEffort}
+                onChange={pickEffort}
                 options={[
                   { value: "", label: t("Default") },
                   ...agent.effort_levels.map((level) => ({ value: level, label: level })),
@@ -170,6 +180,22 @@ export default function HandoffDialog<B extends Brief>({
             )}
           </Section>
         )}
+
+        <Section title={t("Message")}>
+          <textarea
+            rows={4}
+            autoFocus
+            value={message}
+            placeholder={t("What you want from the agent")}
+            onChange={(event) => setMessage(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && ready) {
+                event.preventDefault();
+                void send();
+              }
+            }}
+          />
+        </Section>
       </div>
     </Dialog>
   );

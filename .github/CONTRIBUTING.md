@@ -3,7 +3,7 @@
 ## Installing from scratch
 
 The requirements (Linux, Python ≥ 3.11, Node ≥ 20.19, Rust, Blender, Godot…)
-are listed in the [README](README.md#requirements).
+are listed in the [README](../README.md#requirements).
 
 ```bash
 git clone <the repository> && cd gamestudio
@@ -21,7 +21,7 @@ for the validation).
 
 ## Conventions
 
-They are in [`CLAUDE.md`](CLAUDE.md). The essentials:
+They are in [`CLAUDE.md`](../CLAUDE.md). The essentials:
 
 - **An operation is defined once, in `src/gamestudio/service/`**; the API, the
   CLI and the MCP server only translate it. A route added to the API gets its
@@ -48,12 +48,12 @@ The interface speaks English and French. Every displayed phrase goes through
 `app/src/locales/fr.ts`; a text from the server goes through `tr()`, with its
 template in `app/src/locales/fr-server.json`. `make check` rejects hard-coded
 text and a phrase without its translation. `README.md` and its French
-translation `README.fr.md` change together.
+translation `docs/README.fr.md` change together.
 
 ## Licence of contributions
 
 A contribution is published under the repository's licence: PolyForm Shield
 1.0.0 (`LICENSE`), or GPL 3.0 or later for the scripts run inside Blender.
 Added third-party material keeps its licence and is listed in
-`THIRD_PARTY_NOTICES.md`. A contributor agreement may be requested before a
+`docs/THIRD_PARTY_NOTICES.md`. A contributor agreement may be requested before a
 large pull request is accepted.

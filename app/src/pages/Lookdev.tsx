@@ -10,10 +10,12 @@
  * rework is discussed, its bubble opens an agent on it
  * (`handoff.lookdev_brief`). The universe touches the game only through
  * "Save": the changed settings, written where the shown use takes them
- * (`lookdev.save`). A screen selector shows the specimen as a device draws
- * it, pixel for pixel.
+ * (`lookdev.save`). A device selector shows the whole screen of a phone, a
+ * tablet or a desktop, with the shader's use placed in it as the game's
+ * stretch settings place it.
  *
- * The art direction's written cards are one click away: "Cards".
+ * The graphic style and the game type lead the sections: each written part by
+ * part, with its influences and a thread with an agent (`DirectionRoom`).
  */
 
 import {
@@ -23,15 +25,16 @@ import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   lookdevFontUrl, lookdevFrameUrl, lookdevThumbUrl, type UniformInfo,
-  api, type LookdevBrief, type LookdevFrameQuery, type LookdevScreen, type LookdevSpecimen,
-  type LookdevTheme,
+  api, type DirectionAspect, type LookdevAspect, type LookdevAspectBrief, type LookdevBrief, type LookdevColor, type LookdevDevice,
+  type LookdevFrameQuery, type LookdevIndex, type LookdevPalette, type LookdevSpecimen, type LookdevTopic,
+  type LookdevTypography,
 } from "../api";
+import DirectionRoom from "../components/DirectionRoom";
 import HandoffDialog from "../components/Handoff";
-import { CardsGlyph } from "../components/IconForge";
 import { useSetLookdevState, useLookdev, useLookdevSpecimen } from "../lib/queries";
 import { useStudio } from "../lib/store";
-import { Badge, CloseCross, Empty, Seg, Select, Slider, Toggle, ToolGroup, Toolbar } from "../components/ui";
-import { ChatPlusGlyph, Shelf } from "./Documents";
+import { Badge, CloseCross, Empty, Facts, Seg, Select, Slider, Toggle, ToolGroup, Toolbar } from "../components/ui";
+import { ChatPlusGlyph } from "./Documents";
 import { t, tn, tr } from "../lib/i18n";
 
 const KINDS: Record<string, string> = {
@@ -60,26 +63,14 @@ const ACTIVE_MS = 600;
 const IDLE_INTERVAL = 33;
 const VIEW = { yaw: 25, pitch: 12, zoom: 1 };
 
-/** The simulated screens, by their short side: the game stretches to them from its base size. */
-const SCREENS = [
-  { value: "720p", short: 720 },
-  { value: "1080p", short: 1080 },
-  { value: "1440p", short: 1440 },
-] as const;
-type ScreenId = "studio" | (typeof SCREENS)[number]["value"];
+/** The studio's own view of the specimen, or the whole screen of a device. */
+type ScreenId = "studio" | LookdevDevice["id"];
 
-/**
- * The scale at which a screen draws the specimen (`render`), and the scale at
- * which it shows it (`show`), from the game's stretch mode: `canvas_items`
- * redraws the interface at the screen's size, `viewport` draws at the base
- * size then enlarges the image, `disabled` leaves the interface at its size.
- */
-function onScreen(screen: LookdevScreen, short: number, flat: boolean): { render: number; show: number } {
-  const factor = short / Math.max(1, Math.min(screen.width, screen.height));
-  if (screen.stretch === "viewport") return { render: 1, show: factor };
-  if (screen.stretch === "disabled" && flat) return { render: 1, show: 1 };
-  return { render: Math.min(4, Math.max(0.25, factor)), show: factor };
-}
+const DEVICE_NAMES: Record<LookdevDevice["id"], string> = {
+  phone: t("Phone"),
+  tablet: t("Tablet"),
+  desktop: t("Desktop"),
+};
 
 /** Two setting values equal up to rounding; a color without alpha is opaque. */
 function same(a: unknown, b: unknown): boolean {
@@ -118,80 +109,396 @@ function vivid(colors: string[]): string | null {
 }
 
 /**
- * The game's font, loaded under its own name; `null` until it is there.
+ * The game's fonts: every face of every family, each family under a name of
+ * its own (`lookdev-<project>-<n>`), each face with its real weight and style.
+ * A heading in semibold then uses the game's semibold file, not a weight the
+ * browser makes up from the regular one. `page` is the family the page is set
+ * in -- the game's default font --, `null` until it is there.
  *
- * Its bytes go through `fetch`, never `url(…)`: the shell's CSP
+ * Their bytes go through `fetch`, never `url(…)`: the shell's CSP
  * (`font-src 'self' data:`) refuses a font served by the local API, while it
  * lets a request through (`connect-src`). The URL carries the token.
  */
-function useGameFont(project: string, theme: LookdevTheme | undefined): string | null {
-  const [family, setFamily] = useState<string | null>(null);
-  const file = theme?.fonts.find((font) => /regular|book|medium/i.test(font.family))?.file
-    ?? theme?.fonts[0]?.file;
+function useGameFonts(project: string, data: LookdevIndex | undefined) {
+  const [loaded, setLoaded] = useState<Record<string, string>>({});
+  const families = data?.typography.families;
+  const signature = JSON.stringify(families?.map((family) => [family.family, family.faces.map((face) => face.file)]) ?? []);
   useEffect(() => {
-    if (!file) return;
-    const name = `lookdev-${project}`;
+    if (!families?.length) return;
     let alive = true;
-    let added: FontFace | null = null;
+    const added: FontFace[] = [];
     void (async () => {
-      try {
-        const response = await fetch(lookdevFontUrl(project, file));
-        if (!response.ok) throw new Error(`${response.status}`);
-        const face = await new FontFace(name, await response.arrayBuffer()).load();
+      const names: Record<string, string> = {};
+      await Promise.all(families.map(async (family, index) => {
+        const name = `lookdev-${project}-${index}`;
+        const faces = await Promise.all(family.faces.map(async (face) => {
+          try {
+            const response = await fetch(lookdevFontUrl(project, face.file));
+            if (!response.ok) throw new Error(`${response.status}`);
+            return await new FontFace(name, await response.arrayBuffer(), {
+              weight: String(face.weight),
+              style: face.italic ? "italic" : "normal",
+            }).load();
+          } catch (error) {
+            // An unreadable face does not keep the zone from opening: its
+            // family keeps its other faces, and the console says why.
+            console.warn("lookdev: game font not loaded", face.file, error);
+            return null;
+          }
+        }));
         if (!alive) return;
-        document.fonts.add(face);
-        added = face;
-        setFamily(name);
-      } catch (error) {
-        // A missing or unreadable font does not keep the zone from opening: it
-        // keeps the studio's, and the console says why.
-        console.warn("lookdev: game font not loaded", file, error);
-      }
+        for (const face of faces) {
+          if (face) {
+            document.fonts.add(face);
+            added.push(face);
+          }
+        }
+        if (faces.some(Boolean)) names[family.family] = name;
+      }));
+      if (alive) setLoaded(names);
     })();
     return () => {
       alive = false;
-      if (added) document.fonts.delete(added);
+      for (const face of added) document.fonts.delete(face);
     };
-  }, [project, file]);
-  return family;
+    // `signature` says when the families change; `families` itself is a new
+    // array at each reading of the game.
+  }, [project, signature]); // eslint-disable-line react-hooks/exhaustive-deps
+  const page = data?.theme.font?.family;
+  return { families: loaded, page: page ? loaded[page] ?? null : null };
+}
+
+/**
+ * The sky behind the page, rendered for this window: as wide and as tall as
+ * the first screen, times the screen's pixel density, so it is never
+ * stretched. The bench's sky is 768×432 at scale 1.
+ */
+function skyScale(): number {
+  const wanted = Math.max(window.innerWidth / 768, window.innerHeight / 432) * (window.devicePixelRatio || 1);
+  return Math.min(4, Math.max(1, Math.ceil(wanted * 4) / 4));
+}
+
+/* ------------------------------------------------------------- the sections */
+
+/** The aspects of the art direction, each in its own section. */
+type Section = DirectionAspect | LookdevTopic;
+
+const SECTION_KEY = "gs-lookdev-section";
+
+/** The section a shader belongs to, by its type. */
+function shaderSection(kind: string): Section {
+  return kind === "canvas_item" ? "interface" : kind === "spatial" ? "materials" : kind === "sky" ? "sky" : "other";
+}
+
+/** The section shown, remembered for this visitor; one that has nothing falls back on the first. */
+function useSection(available: Section[]): [Section | null, (section: Section) => void] {
+  const [chosen, setChosen] = useState<Section | null>(() => {
+    try {
+      return localStorage.getItem(SECTION_KEY) as Section | null;
+    } catch {
+      return null;
+    }
+  });
+  const choose = (section: Section) => {
+    setChosen(section);
+    try {
+      localStorage.setItem(SECTION_KEY, section);
+    } catch {
+      /* A comfort: without storage, the page opens on its first section. */
+    }
+  };
+  const shown = chosen && available.includes(chosen) ? chosen : available[0] ?? null;
+  return [shown, choose];
+}
+
+/** A file's name, without its folders. */
+const basename = (file: string) => file.split("/").pop() ?? file;
+
+/** Where the game writes a color, as the Universe's sections name it. */
+const ASPECTS: LookdevAspect[] = ["interface", "materials", "sky", "other"];
+const ASPECT_LABELS: Record<LookdevAspect, string> = {
+  interface: t("Interface"),
+  materials: t("Materials"),
+  sky: t("Sky"),
+  other: t("Elsewhere"),
+};
+// The colors an aspect shows before it is unfolded: the most used.
+const FOLDED_COLORS = 24;
+
+/** The colors the Colors section holds; a material's colors are shown with the materials. */
+const PALETTE_ASPECTS: LookdevAspect[] = ["interface", "sky", "other"];
+const MATERIAL_ASPECTS: LookdevAspect[] = ["materials"];
+
+/** The colors used for these aspects, the most used for them first. */
+function colorsFor(palette: LookdevPalette, aspects: LookdevAspect[]): LookdevColor[] {
+  const weight = (color: LookdevColor) => aspects.reduce((total, aspect) => total + (color.aspects[aspect] ?? 0), 0);
+  return palette.colors.filter((color) => weight(color) > 0).sort((a, b) => weight(b) - weight(a));
+}
+
+/**
+ * The game's colors for some aspects: in the Colors section, their share as a
+ * band then the colors of each aspect -- interface, sky, elsewhere --; in the
+ * Materials section, the materials' own. Beside them, every place the chosen
+ * one is written.
+ */
+function PaletteSection({ palette, aspects }: { palette: LookdevPalette; aspects: LookdevAspect[] }) {
+  const colors = useMemo(() => colorsFor(palette, aspects), [palette, aspects]);
+  const [chosen, setChosen] = useState(colors[0]?.hex ?? "");
+  const [unfolded, setUnfolded] = useState<LookdevAspect[]>([]);
+  const picked = colors.find((color) => color.hex === chosen) ?? colors[0];
+  const single = aspects.length === 1;
+  const groups = useMemo(() => aspects.map((aspect) => ({
+    aspect,
+    colors: palette.colors.filter((color) => color.aspects[aspect])
+      .sort((a, b) => (b.aspects[aspect] ?? 0) - (a.aspects[aspect] ?? 0)),
+  })).filter((group) => group.colors.length > 0), [palette, aspects]);
+  if (!picked) return single ? null : <Empty title={t("No color written in the game")} />;
+  const weight = (color: LookdevColor) => aspects.reduce((total, aspect) => total + (color.aspects[aspect] ?? 0), 0);
+  const total = colors.reduce((sum, color) => sum + weight(color), 0);
+
+  const swatches = groups.map((group) => {
+    const open = unfolded.includes(group.aspect);
+    const shown = open ? group.colors : group.colors.slice(0, FOLDED_COLORS);
+    return (
+      <section key={group.aspect} className="lookdev-subsection">
+        <h3>
+          {single ? t("Colors") : ASPECT_LABELS[group.aspect]}
+          <span className="num lookdev-subsection-file">
+            {tn(group.colors.length, "{n} color", "{n} colors")}
+          </span>
+        </h3>
+        <ul className="lookdev-swatches">
+          {shown.map((color) => {
+            const uses = color.uses.filter((use) => use.aspect === group.aspect);
+            const name = uses.find((use) => use.names.length > 0)?.names[0];
+            return (
+              <li key={color.hex}>
+                <button type="button" className="lookdev-swatch" aria-pressed={color.hex === picked.hex}
+                        onClick={() => setChosen(color.hex)}
+                        title={uses.map((use) => use.file).join("\n")}>
+                  <span className="lookdev-swatch-chip lookdev-chip"
+                        style={{ "--chip": color.hex } as React.CSSProperties} />
+                  <span className="lookdev-swatch-text">
+                    <span className="mono">{color.hex}</span>
+                    <span className="num">×{color.aspects[group.aspect]}</span>
+                    {name && <span className="mono lookdev-swatch-key">{name}</span>}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+        {group.colors.length > FOLDED_COLORS && (
+          <button type="button" className="btn btn-ghost lookdev-unfold"
+                  onClick={() => setUnfolded((held) => open
+                    ? held.filter((aspect) => aspect !== group.aspect) : [...held, group.aspect])}>
+            {open ? t("Show fewer") : t("Show all {n}", { n: group.colors.length })}
+          </button>
+        )}
+      </section>
+    );
+  });
+
+  return (
+    <>
+      {!single && (
+        <div className="lookdev-band" role="img" aria-label={t("Game colors")}>
+          {colors.map((color) => (
+            <span key={color.hex} className="lookdev-chip"
+                  style={{ "--chip": color.hex, flexGrow: weight(color) } as React.CSSProperties}
+                  title={`${color.hex} · ${Math.round((100 * weight(color)) / Math.max(1, total))} %`} />
+          ))}
+        </div>
+      )}
+      <div className={`lookdev-colors ${single ? "is-single" : ""}`}>
+        <div>{swatches}</div>
+        <ColorUses color={picked} />
+      </div>
+    </>
+  );
+}
+
+/** Where a color is written: aspect by aspect, each file with the names carrying it. */
+function ColorUses({ color }: { color: LookdevColor }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => setCopied(false), [color.hex]);
+  const copy = () => {
+    void navigator.clipboard?.writeText(color.hex).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    }).catch(() => {
+      /* Without a clipboard, the hex stays readable above. */
+    });
+  };
+  return (
+    <aside className="lookdev-uses" aria-label={t("Where {hex} is written", { hex: color.hex })}>
+      <span className="lookdev-uses-chip lookdev-chip" style={{ "--chip": color.hex } as React.CSSProperties} />
+      <div className="lookdev-uses-head">
+        <b className="mono">{color.hex}</b>
+        <span className="num">{tn(color.count, "written {n} time", "written {n} times")}</span>
+        <button type="button" className="btn btn-ghost btn-icon" onClick={copy}
+                aria-label={t("Copy the color")} title={copied ? t("Copied") : t("Copy the color")}>
+          {copied ? <CheckGlyph /> : <CopyGlyph />}
+        </button>
+      </div>
+      {ASPECTS.filter((aspect) => color.aspects[aspect]).map((aspect) => (
+        <section key={aspect} className="lookdev-uses-aspect">
+          <h4>{ASPECT_LABELS[aspect]} <span className="num">×{color.aspects[aspect]}</span></h4>
+          <ul>
+            {color.uses.filter((use) => use.aspect === aspect).map((use) => (
+              <li key={use.file}>
+                <span className="mono lookdev-uses-file">
+                  {use.file.includes("/") && <span>{use.file.slice(0, use.file.lastIndexOf("/") + 1)}</span>}
+                  {basename(use.file)}
+                </span>
+                {use.count > 1 && <span className="num">×{use.count}</span>}
+                {use.names.length > 0 && <span className="mono lookdev-uses-names">{use.names.join(" · ")}</span>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </aside>
+  );
+}
+
+const GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789 àâçéèêëîïôûü «» — …";
+
+/**
+ * The game's typography: each family with its faces, set in the game's own
+ * texts; the sizes it uses; its font resources, the default one first.
+ */
+function TypeSection({ typography, families }: {
+  typography: LookdevTypography;
+  /** CSS family name of each game family, once its faces are loaded. */
+  families: Record<string, string>;
+}) {
+  const [text, setText] = useState(() =>
+    typography.samples.find((sample) => sample.length >= 12) ?? typography.samples[0] ?? "");
+  const sample = text.trim() || typography.samples[0] || GLYPHS;
+  const fallback = "var(--font-body)";
+  const css = (family: string) => (families[family] ? `"${families[family]}", ${fallback}` : fallback);
+  const main = typography.default.family || typography.families[0]?.family || "";
+  const weight = typography.families.flatMap((family) => family.faces).find((face) => face.default)?.weight;
+  const resources = [...typography.resources].sort(
+    (a, b) => Number(b.file === typography.default.resource) - Number(a.file === typography.default.resource));
+
+  return (
+    <>
+      <div className="lookdev-type-bar">
+        <input
+          className="lookdev-sample"
+          value={text}
+          list="lookdev-samples"
+          aria-label={t("Specimen text")}
+          placeholder={t("Specimen text")}
+          onChange={(event) => setText(event.target.value)}
+        />
+        <datalist id="lookdev-samples">
+          {typography.samples.map((entry) => <option key={entry} value={entry} />)}
+        </datalist>
+      </div>
+
+      {typography.families.map((family) => (
+        <article key={family.family} className="lookdev-family">
+          <header className="lookdev-family-head">
+            <samp className="lookdev-family-aa" style={{ fontFamily: css(family.family) }}>{"Aa"}</samp>
+            <div>
+              <h3 style={{ fontFamily: css(family.family) }}>{family.family}</h3>
+              <p className="num">
+                {tn(family.faces.length, "{n} face", "{n} faces")}
+                {family.faces[0]?.glyphs ? ` · ${tn(family.faces[0].glyphs, "{n} glyph", "{n} glyphs")}` : ""}
+              </p>
+            </div>
+          </header>
+          <ul className="lookdev-faces">
+            {family.faces.map((face) => (
+              <li key={face.file} className="lookdev-face">
+                <div className="lookdev-face-meta">
+                  <b>{face.style}</b>
+                  <span className="num">{face.weight}</span>
+                  {face.default ? <Badge>{t("Default font")}</Badge>
+                    : face.uses === 0 ? <Badge tone="quiet">{t("Not cited")}</Badge>
+                    : <span className="num">{tn(face.uses, "{n} use", "{n} uses")}</span>}
+                  <span className="mono lookdev-face-file" title={face.file}>{basename(face.file)}</span>
+                </div>
+                <p className="lookdev-face-sample" style={{
+                  fontFamily: css(family.family), fontWeight: face.weight,
+                  fontStyle: face.italic ? "italic" : "normal",
+                }}>
+                  {sample}
+                </p>
+              </li>
+            ))}
+          </ul>
+          <samp className="lookdev-glyphs" style={{ fontFamily: css(family.family), fontWeight: weight }}>{GLYPHS}</samp>
+        </article>
+      ))}
+
+      {typography.sizes.length > 0 && (
+        <section className="lookdev-subsection">
+          <h3>{t("Sizes")}</h3>
+          <ul className="lookdev-scale">
+            {typography.sizes.map((size) => (
+              <li key={size.size} title={size.files.join("\n")}>
+                <span className="num lookdev-scale-size">{size.size}</span>
+                <span className="lookdev-scale-sample" style={{ fontFamily: css(main), fontSize: size.size, fontWeight: weight }}>
+                  {sample}
+                </span>
+                <span className="num">×{size.count}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {resources.map((resource) => (
+        <section key={resource.file} className="lookdev-subsection">
+          <h3>
+            {resource.file === typography.default.resource ? t("Default font") : resource.type}
+            <span className="mono lookdev-subsection-file">{resource.file}</span>
+          </h3>
+          <Facts rows={[
+            [t("Type"), <span className="mono">{resource.type}</span>],
+            [t("Base"), resource.base ? <span className="mono">{basename(resource.base)}</span> : null],
+            [t("Fallbacks"), resource.fallbacks.length || resource.system.length
+              ? <span className="mono">{[...resource.system, ...resource.fallbacks].map(basename).join(" → ")}</span> : null],
+            [t("OpenType features"), resource.features.length
+              ? <span className="mono">{resource.features.map((feature) => `${feature.tag}=${feature.value}`).join(" · ")}</span> : null],
+            ...Object.entries(resource.settings).map(([key, value]): [React.ReactNode, React.ReactNode] => [
+              <span className="mono">{key}</span>, <span className="mono">{value}</span>]),
+          ]} />
+        </section>
+      ))}
+    </>
+  );
 }
 
 /* ------------------------------------------------------------------ the page */
 
 export default function Lookdev() {
   const { project } = useStudio();
-  const [cards, setCards] = useState(false);
-
-  if (cards) {
-    return (
-      <Shelf
-        title={t("Art direction")}
-        folder="design/direction"
-        template="direction"
-        actions={(
-          <button type="button" className="btn btn-secondary" onClick={() => setCards(false)}>
-            {t("Universe")}
-          </button>
-        )}
-      />
-    );
-  }
-  return <Zone key={project} project={project} onCards={() => setCards(true)} />;
+  return <Zone key={project} project={project} />;
 }
 
-function Zone({ project, onCards }: { project: string; onCards: () => void }) {
+function Zone({ project }: { project: string }) {
   const { data, error, isLoading } = useLookdev(project);
   const [discussing, setDiscussing] = useState<LookdevSpecimen | null>(null);
+  const [topic, setTopic] = useState<LookdevTopic | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   // A saved specimen changed in the game: its thumbnail is requested again.
   const [saved, setSaved] = useState<Record<string, number>>({});
-  const family = useGameFont(project, data?.theme);
+  const fonts = useGameFonts(project, data);
+  const family = fonts.page;
   const accent = data ? vivid(data.theme.colors) : null;
+  // Once per page: a sky rendered for this window, without loss.
+  const [scale] = useState(skyScale);
 
   const style = useMemo(() => {
     if (!data) return undefined;
     const theme = data.theme;
-    const sky = theme.sky ? lookdevFrameUrl(project, theme.sky, { scale: 2, yaw: 20, pitch: 8 }) : "";
+    const sky = theme.sky
+      ? lookdevFrameUrl(project, theme.sky, { scale, yaw: 20, pitch: 8, format: "png" }) : "";
     return {
       "--u-bg": theme.background,
       "--u-ink": theme.colors[0] ?? undefined,
@@ -201,9 +508,32 @@ function Zone({ project, onCards }: { project: string; onCards: () => void }) {
       "--u-sky": sky ? `url("${sky}")` : undefined,
       fontFamily: family ? `"${family}", var(--font-body)` : undefined,
     } as React.CSSProperties;
-  }, [data, project, family, accent]);
+  }, [data, project, family, accent, scale]);
 
-  const shown = data?.specimens ?? [];
+  const sections = useMemo(() => {
+    if (!data) return [];
+    const count = (section: Section) => data.specimens.filter((entry) => shaderSection(entry.kind) === section).length;
+    // The graphic style and the universe type lead, and always show: they are
+    // discussed before anything is in them.
+    const all: { value: Section; label: string; count: number; always?: boolean }[] = [
+      { value: "style", label: t("Graphic style"), always: true,
+        count: data.direction.style.written + data.direction.style.influences },
+      { value: "game", label: t("Game type"), always: true,
+        count: data.direction.game.written + data.direction.game.influences },
+      { value: "colors", label: t("Colors"), count: colorsFor(data.palette, PALETTE_ASPECTS).length },
+      { value: "typography", label: t("Typography"),
+        count: data.typography.families.reduce((total, item) => total + item.faces.length, 0) },
+      { value: "interface", label: t("Interface"), count: count("interface") },
+      { value: "materials", label: t("Materials"), count: count("materials"),
+        always: colorsFor(data.palette, MATERIAL_ASPECTS).length > 0 },
+      { value: "sky", label: t("Sky"), count: count("sky") },
+      { value: "other", label: t("Other shaders"), count: count("other") },
+    ];
+    return all.filter((entry) => entry.always || entry.count > 0);
+  }, [data]);
+  const [section, setSection] = useSection(sections.map((entry) => entry.value));
+  const shown = (data?.specimens ?? []).filter((entry) => shaderSection(entry.kind) === section);
+  const current = sections.find((entry) => entry.value === section);
 
   return (
     <div className="lookdev" style={style}>
@@ -220,34 +550,58 @@ function Zone({ project, onCards }: { project: string; onCards: () => void }) {
             </ul>
           )}
         </div>
-        <div className="lookdev-actions">
-          <button type="button" className="btn btn-ghost btn-icon" aria-label={t("Cards")} title={t("Cards")}
-                  onClick={onCards}>
-            <CardsGlyph />
-          </button>
-        </div>
       </header>
 
       {isLoading ? (
         <Empty title={t("Reading the game…")} />
       ) : error ? (
         <div className="lookdev-panel"><Empty title={(error as Error).message} /></div>
-      ) : data && data.specimens.length === 0 ? (
+      ) : data && sections.length === 0 ? (
         <div className="lookdev-panel"><Empty title={t("No shader in the game")} /></div>
-      ) : data ? (
-        <section className="lookdev-room">
-          <div className="lookdev-room-head">
-            <h2>{t("Shaders")}</h2>
-            <span className="num">{shown.length}</span>
-          </div>
-          <ul className="lookdev-grid">
-            {shown.map((entry) => (
-              <SpecimenCard key={entry.id} project={project} entry={entry} onOpen={() => setOpen(entry.id)}
-                            version={`${entry.updated_at ?? ""}-${saved[entry.id] ?? 0}`}
-                            onDiscuss={() => setDiscussing(entry)} />
-            ))}
-          </ul>
-        </section>
+      ) : data && section && current ? (
+        <>
+          <nav className="lookdev-sections" aria-label={t("Art direction")}>
+            <Seg<Section>
+              value={section}
+              onChange={setSection}
+              options={sections.map((entry) => ({
+                value: entry.value,
+                label: <>{entry.label} <span className="num">{entry.count}</span></>,
+              }))}
+            />
+          </nav>
+          <section className={`lookdev-room is-${section}`}>
+            <div className="lookdev-room-head">
+              <h2>{current.label}</h2>
+              {section !== "style" && section !== "game" && (
+                <button type="button" className="btn btn-secondary btn-icon" title={t("Discuss")}
+                        aria-label={t("Discuss {title}", { title: current.label })} onClick={() => setTopic(section)}>
+                  <ChatPlusGlyph />
+                </button>
+              )}
+            </div>
+            {section === "style" || section === "game" ? (
+              <DirectionRoom key={section} project={project} aspect={section} />
+            ) : section === "colors" ? (
+              <PaletteSection palette={data.palette} aspects={PALETTE_ASPECTS} />
+            ) : section === "typography" ? (
+              <TypeSection typography={data.typography} families={fonts.families} />
+            ) : (
+              <>
+                {shown.length > 0 && (
+                  <ul className="lookdev-grid">
+                    {shown.map((entry) => (
+                      <SpecimenCard key={entry.id} project={project} entry={entry} onOpen={() => setOpen(entry.id)}
+                                    version={`${entry.updated_at ?? ""}-${saved[entry.id] ?? 0}`}
+                                    onDiscuss={() => setDiscussing(entry)} />
+                    ))}
+                  </ul>
+                )}
+                {section === "materials" && <PaletteSection palette={data.palette} aspects={MATERIAL_ASPECTS} />}
+              </>
+            )}
+          </section>
+        </>
       ) : null}
 
       {/* The room goes above the whole studio: it leaves the page, taking the
@@ -265,6 +619,14 @@ function Zone({ project, onCards }: { project: string; onCards: () => void }) {
       {discussing && createPortal(
         <div className="lookdev-handoff">
           <LookdevHandoff project={project} entry={discussing} onClose={() => setDiscussing(null)} />
+        </div>,
+        document.body,
+      )}
+      {topic && createPortal(
+        <div className="lookdev-handoff">
+          <TopicHandoff project={project} topic={topic} label={sections.find((entry) => entry.value === topic)?.label ?? ""}
+                        count={sections.find((entry) => entry.value === topic)?.count ?? 0}
+                        onClose={() => setTopic(null)} />
         </div>,
         document.body,
       )}
@@ -329,6 +691,30 @@ function LookdevHandoff({ project, entry, onClose }: {
       ]}
       submit={(choice) => api.lookdevHandoff(project, entry.id, choice)}
       sent={(session) => t("{title} handed to {title2}", { title: entry.title, title2: session.title })}
+      onClose={onClose}
+    />
+  );
+}
+
+/** The agent conversation on a whole section: its colors, its type, a family of shaders. */
+function TopicHandoff({ project, topic, label, count, onClose }: {
+  project: string;
+  topic: LookdevTopic;
+  label: string;
+  count: number;
+  onClose: () => void;
+}) {
+  return (
+    <HandoffDialog<LookdevAspectBrief>
+      title={t("Discuss this section")}
+      eyebrow={label}
+      load={() => api.lookdevAspectBrief(project, topic)}
+      rows={() => [
+        [t("Section"), label],
+        [t("Elements"), <span className="num">{count}</span>],
+      ]}
+      submit={(choice) => api.lookdevAspectHandoff(project, topic, choice)}
+      sent={(session) => t("{title} handed to {title2}", { title: label, title2: session.title })}
       onClose={onClose}
     />
   );
@@ -503,12 +889,8 @@ function Inspector({ project, id, background, paused, onClose, onDiscuss, onSave
   }, [data, chosen]);
   const orbit = data ? data.staged || data.kind === "spatial" || data.kind === "sky" : false;
   const flat = data?.kind === "canvas_item" && !data.staged;
-  const simulated = SCREENS.find((entry) => entry.value === screenId);
-  const device = data && simulated ? onScreen(data.screen, simulated.short, flat) : null;
-  const scale = device ? device.render
-    : flat && data?.size ? Math.min(3, Math.max(1, 560 / data.size[0])) : 1;
-  // Pixel for pixel: one device pixel on one pixel of the station's screen.
-  const display = device ? device.show / (window.devicePixelRatio || 1) : null;
+  const device = data?.screen.devices.find((entry) => entry.id === screenId) ?? null;
+  const scale = flat && data?.size ? Math.min(3, Math.max(1, 560 / data.size[0])) : 1;
 
   // What the game holds for each setting, and what departs from it: that is
   // what "Save" writes.
@@ -555,10 +937,11 @@ function Inspector({ project, id, background, paused, onClose, onDiscuss, onSave
     params: overrides,
     preset: chosen,
     shape: shape ?? undefined,
-    scale,
+    scale: device ? undefined : scale,
     format: "jpg",
     background: background || undefined,
-  }), [overrides, chosen, shape, scale, background]);
+    device: device?.id,
+  }), [overrides, chosen, shape, scale, background, device]);
 
   const uniforms = (data?.uniform_list ?? []).filter((entry) =>
     !search || entry.name.toLowerCase().includes(search.toLowerCase())
@@ -576,11 +959,15 @@ function Inspector({ project, id, background, paused, onClose, onDiscuss, onSave
           <div className="lookdev-inspect-tools">
             {data && data.bench?.ok && (
               <>
-                {device && <span className="num lookdev-screen-scale">×{device.show.toFixed(2).replace(/\.?0+$/, "")}</span>}
+                {device && <span className="num lookdev-screen-scale">{device.width}×{device.height}</span>}
                 <Seg<ScreenId>
                   value={screenId}
                   options={[{ value: "studio", label: t("Studio") },
-                    ...SCREENS.map((entry) => ({ value: entry.value, label: entry.value }))]}
+                    ...data.screen.devices.map((entry) => ({
+                      value: entry.id,
+                      label: <DeviceGlyph id={entry.id} wide={entry.width > entry.height} />,
+                      title: `${DEVICE_NAMES[entry.id]} · ${entry.width}×${entry.height}`,
+                    }))]}
                   onChange={setScreenId}
                 />
               </>
@@ -596,7 +983,7 @@ function Inspector({ project, id, background, paused, onClose, onDiscuss, onSave
           <Empty title={tr(data.bench.error)} />
         ) : data ? (
           <LiveFrame project={project} id={id} query={query} flat={flat} orbit={orbit}
-                     animated={data.animated} display={display} />
+                     animated={data.animated} device={device !== null} />
         ) : (
           <Empty title={t("Godot is preparing the bench…")} />
         )}
@@ -717,31 +1104,17 @@ function Inspector({ project, id, background, paused, onClose, onDiscuss, onSave
  * refs: a gesture only wakes the loop, it does not redraw the room. A frame is
  * replaced only once decoded: nothing flickers.
  */
-function LiveFrame({ project, id, query, flat, orbit, animated, display }: {
+function LiveFrame({ project, id, query, flat, orbit, animated, device }: {
   project: string;
   id: string;
   query: LookdevFrameQuery;
   flat: boolean;
   orbit: boolean;
   animated: boolean;
-  /**
-   * A simulated screen: the specimen's base size times this factor, in CSS
-   * pixels. Without it, the image keeps its natural size.
-   */
-  display: number | null;
+  /** The image is a device's whole screen: fitted to the stage, in its bezel. */
+  device: boolean;
 }) {
   const image = useRef<HTMLImageElement>(null);
-  // The render scale of the shown image: its base size follows from it.
-  const drawn = useRef(1);
-  const sizing = useRef(display);
-  sizing.current = display;
-  const fit = useCallback((natural?: number) => {
-    const element = image.current;
-    const width = natural ?? element?.naturalWidth ?? 0;
-    if (!element || !width) return;
-    element.style.width = sizing.current === null ? "" : `${(width / drawn.current) * sizing.current}px`;
-  }, []);
-  useEffect(() => fit(), [display, fit]);
   const meter = useRef<HTMLSpanElement>(null);
   const [ready, setReady] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -805,11 +1178,7 @@ function LiveFrame({ project, id, query, flat, orbit, animated, display }: {
             URL.revokeObjectURL(url);
             break;
           }
-          if (image.current) {
-            drawn.current = state.scale ?? 1;
-            image.current.src = url;
-            fit(decoded.naturalWidth);
-          }
+          if (image.current) image.current.src = url;
           const previous = shown;
           shown = url;
           if (previous) setTimeout(() => URL.revokeObjectURL(previous), 200);
@@ -870,7 +1239,7 @@ function LiveFrame({ project, id, query, flat, orbit, animated, display }: {
   return (
     <div
       className={`lookdev-live ${flat ? "is-flat" : ""} ${orbit ? "can-orbit" : ""} ${
-        display !== null ? "is-device" : ""}`}
+        device ? "is-device" : ""}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={() => { drag.current = null; }}
@@ -1076,6 +1445,25 @@ function ResetGlyph() {
   );
 }
 
+/** Copy: one sheet over another. */
+function CopyGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="8.5" y="8.5" width="11" height="11" rx="1.5" />
+      <path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5" />
+    </svg>
+  );
+}
+
+/** Done: a tick. */
+function CheckGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M5 12.5l4.5 4.5L19 7.5" />
+    </svg>
+  );
+}
+
 /** Write into the game: the arrow goes down into the tray. */
 function SaveGlyph() {
   return (
@@ -1083,6 +1471,35 @@ function SaveGlyph() {
       <path d="M12 4v10.5" />
       <path d="M7.5 10l4.5 4.5 4.5-4.5" />
       <path d="M4.5 15v3.5a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5V15" />
+    </svg>
+  );
+}
+
+/** A device by its outline: a phone, a tablet, a desktop monitor; turned when the game is held wide. */
+function DeviceGlyph({ id, wide }: { id: LookdevDevice["id"]; wide: boolean }) {
+  const turn = wide && id !== "desktop" ? "rotate(90 12 12)" : undefined;
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <g transform={turn}>
+        {id === "phone" && (
+          <>
+            <rect x="7" y="3" width="10" height="18" rx="2" />
+            <path d="M11 18h2" />
+          </>
+        )}
+        {id === "tablet" && (
+          <>
+            <rect x="5" y="3" width="14" height="18" rx="2" />
+            <path d="M11 18h2" />
+          </>
+        )}
+        {id === "desktop" && (
+          <>
+            <rect x="3" y="4" width="18" height="12" rx="1.5" />
+            <path d="M12 16v4M8 20h8" />
+          </>
+        )}
+      </g>
     </svg>
   );
 }

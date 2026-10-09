@@ -60,7 +60,7 @@ rejects a stale code map. A lasting decision is written down
    no key, no private game name in a tracked file. A script that imports `bpy`
    (`blender/bl_*.py`) is GPL-3.0-or-later and opens with
    `# SPDX-License-Identifier: GPL-3.0-or-later`; third-party material keeps its
-   licence (`THIRD_PARTY_NOTICES.md`, `.claude/skills/img2threejs/VENDOR.md`).
+   licence (`docs/THIRD_PARTY_NOTICES.md`, `.claude/skills/img2threejs/VENDOR.md`).
 
 ## The studio on one page
 
@@ -129,7 +129,7 @@ rendering or mesh import. CI (`.github/workflows/checks.yml`) runs both.
   through `tr()`, and every message the server raises has its template (`{0}`,
   `{1}`…) in `app/src/locales/fr-server.json` (`tests/test_translations.py`).
   `make check` rejects hard-coded text and a phrase without its translation.
-  `README.fr.md` is the French translation of `README.md`: change both.
+  `docs/README.fr.md` is the French translation of `README.md`: change both.
 - Canonical skeleton: Blender bone names (`hips`, `upper_arm.L`…) in
   `domain/skeleton.py`, used when the body suits it; a cycle is named
   `<name>_loop` (Godot loops it and calls it `<name>`).
