@@ -627,5 +627,9 @@
   "the model failed: {0}": "le modèle a échoué : {0}",
   "the model wrote no prompt: {0}": "le modèle n'a écrit aucun prompt : {0}",
   "the model took too long to look at the images": "le modèle a mis trop longtemps à regarder les images",
-  "view not found: {0}": "vue introuvable : {0}"
+  "view not found: {0}": "vue introuvable : {0}",
+  "unknown rule: {0} (known: {1})": "règle inconnue : {0} (connues : {1})",
+  "mesh not found: {0}": "mesh introuvable : {0}",
+  "unknown shape: {0} (expected: {1}, or a mesh)": "forme inconnue : {0} (attendu : {1}, ou un mesh)",
+  "model too heavy: {0} MB (at most {1} MB)": "modèle trop lourd : {0} Mo (au plus {1} Mo)"
 }

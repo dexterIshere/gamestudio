@@ -736,6 +736,26 @@ def lookdev_universe(project: str) -> dict[str, Any]:
     return lookdev.universe(project)
 
 
+class LookdevRuleRequest(BaseModel):
+    """A rule of the art direction, ticked or not."""
+
+    rule: str
+    value: bool
+
+
+@app.put("/api/projects/{project}/lookdev-rules")
+def lookdev_rule(project: str, request: LookdevRuleRequest) -> dict[str, bool]:
+    """Tick or untick a rule of the art direction (materials must be procedural…)."""
+    return lookdev.set_rule(project, request.rule, request.value)
+
+
+@app.post("/api/projects/{project}/lookdev-meshes")
+async def lookdev_mesh_import(project: str, file: UploadFile = File(...)) -> dict[str, str]:
+    """Keep a dropped glTF model for the project, to lay its materials on."""
+    data = await file.read()
+    return await run_in_threadpool(lookdev.import_mesh, project, data, file.filename or "mesh.glb")
+
+
 @app.get("/api/projects/{project}/lookdev-font")
 def lookdev_font(project: str, file: str) -> FileResponse:
     """A game font: the page dresses itself with it."""

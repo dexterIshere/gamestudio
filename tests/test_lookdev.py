@@ -15,7 +15,9 @@ virtual display are installed.
 from __future__ import annotations
 
 import io
+import json
 import shutil
+import struct
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -172,7 +174,7 @@ def test_the_setup_is_written_next_to_the_project(game: Path) -> None:
     assert lookdev._state("game", "button")["shape"] == "cube"
 
     for wrong, message in (({"setup": "extends Node"}, "func build"),
-                           ({"shape": "torus"}, "unknown shape")):
+                           ({"shape": "teapot"}, "unknown shape")):
         with pytest.raises(ServiceError, match=message):
             lookdev.set_state("game", "button", **wrong)
     with pytest.raises(NotFound):
@@ -217,6 +219,78 @@ def test_a_section_is_discussed_as_a_whole(game: Path) -> None:
     assert "**green**" in text and "### Their colors" in text and "`#ffcc66`" in text
     with pytest.raises(NotFound):
         handoff.lookdev_aspect_brief("game", "sound")
+
+
+def test_materials_can_be_bound_to_be_procedural(game: Path,
+                                                 monkeypatch: pytest.MonkeyPatch) -> None:
+    """A rule ticked in the Universe binds the materials' briefs; one reading an image says so."""
+    monkeypatch.setattr(lookdev, "thumbnail", lambda project, specimen: game / "thumb.webp")
+    shaders = game / "client" / "shaders"
+    (shaders / "rock.gdshader").write_text(
+        "shader_type spatial;\nuniform sampler2D albedo : source_color;\nvoid fragment() {}\n",
+        encoding="utf-8")
+    (shaders / "glass.gdshader").write_text(
+        "shader_type spatial;\nuniform sampler2D behind : hint_screen_texture;\n"
+        "void fragment() {}\n", encoding="utf-8")
+    assert lookdev.rules("game") == {"procedural_materials": False}
+    by_id = {entry["id"]: entry for entry in lookdev.universe("game")["specimens"]}
+    assert by_id["rock"]["textures"] and not by_id["glass"]["textures"], \
+        "the screen behind a surface is not an image"
+    text = Path(handoff.lookdev_brief("game", "rock")["path"]).read_text(encoding="utf-8")
+    assert "procedural" not in text, "an unticked rule binds nothing"
+
+    assert lookdev.set_rule("game", "procedural_materials", True) == {"procedural_materials": True}
+    assert lookdev.universe("game")["rules"] == {"procedural_materials": True}
+    text = Path(handoff.lookdev_brief("game", "rock")["path"]).read_text(encoding="utf-8")
+    assert "**Materials are procedural**" in text and "reads an image today" in text
+    text = Path(handoff.lookdev_brief("game", "button")["path"]).read_text(encoding="utf-8")
+    assert "procedural" not in text, "an interface shader is not a material"
+    text = Path(handoff.lookdev_aspect_brief("game", "materials")["path"]).read_text(
+        encoding="utf-8")
+    assert "**Materials are procedural**" in text and "rock" in text
+    with pytest.raises(NotFound):
+        lookdev.set_rule("game", "everything_pink", True)
+
+
+def _glb() -> bytes:
+    """The smallest glTF binary model: one triangle."""
+    points = struct.pack("<9f", 0, 0, 0, 1, 0, 0, 0, 1, 0)
+    document = {
+        "asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": [0]}],
+        "nodes": [{"mesh": 0}],
+        "meshes": [{"primitives": [{"attributes": {"POSITION": 0}}]}],
+        "buffers": [{"byteLength": len(points)}],
+        "bufferViews": [{"buffer": 0, "byteLength": len(points)}],
+        "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3",
+                       "min": [0, 0, 0], "max": [1, 1, 0]}]}
+    text = json.dumps(document).encode()
+    text += b" " * (-len(text) % 4)
+    chunks = (struct.pack("<II", len(text), 0x4E4F534A) + text
+              + struct.pack("<II", len(points), 0x004E4942) + points)
+    return struct.pack("<III", 0x46546C67, 2, 12 + len(chunks)) + chunks
+
+
+def test_a_material_is_laid_on_a_model(game: Path) -> None:
+    """The game's models and the dropped ones are offered; nothing else is laid."""
+    (game / "client" / "models").mkdir()
+    (game / "client" / "models" / "rock.glb").write_bytes(_glb())
+    dropped = lookdev.import_mesh("game", _glb(), "My Tower.glb")
+    assert dropped == {"shape": "mesh:import:my-tower.glb", "label": "my-tower",
+                       "source": "import"}
+    assert lookdev.import_mesh("game", _glb(), "My Tower.glb") == dropped, "the same file twice"
+    shapes = [mesh["shape"] for mesh in lookdev.meshes("game")]
+    assert shapes == ["mesh:game:client/models/rock.glb", "mesh:import:my-tower.glb"]
+    assert not (game / "client" / "my-tower.glb").exists(), "the game is not touched"
+    with pytest.raises(ServiceError, match="format refused"):
+        lookdev.import_mesh("game", b"solid", "rock.obj")
+
+    assert lookdev.set_state("game", "groups", shape="mesh:game:client/models/rock.glb")["shape"] \
+        == "mesh:game:client/models/rock.glb"
+    assert lookdev.set_state("game", "groups", shape="torus")["shape"] == "torus"
+    with pytest.raises(NotFound):
+        lookdev.set_state("game", "groups", shape="mesh:game:client/project.godot")
+    with pytest.raises(ServiceError, match="unknown shape"):
+        lookdev.set_state("game", "groups", shape="teapot")
 
 
 def test_an_include_is_not_rendered_alone_and_fonts_are_the_game_ones(
@@ -598,3 +672,18 @@ def test_the_bench_only_obeys_whoever_gives_its_secret(game: Path, tmp_path: Pat
         if bench.poll() is None:
             os.killpg(bench.pid, signal.SIGKILL)
             bench.wait(timeout=10)
+
+
+@BENCH
+def test_the_bench_lays_a_material_on_a_model(game: Path) -> None:
+    (game / "client" / "shaders" / "stone.gdshader").write_text(
+        # Unlit and two-sided: a bare triangle has no normals to light.
+        "shader_type spatial;\nrender_mode unshaded, cull_disabled;\n"
+        "void fragment() { ALBEDO = vec3(0.1, 0.8, 0.2); }\n",
+        encoding="utf-8")
+    model = lookdev.import_mesh("game", _glb(), "triangle.glb")
+    shot = lookdev.frame("game", "stone", shape=model["shape"], format="png")
+    image = Image.open(io.BytesIO(shot["image"])).convert("RGB")
+    assert any(green > red + 80 and green > blue + 80 for red, green, blue in image.getdata()), \
+        "the model shows, in the material's color"
+

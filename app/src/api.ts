@@ -880,6 +880,8 @@ export interface LookdevSpecimen {
   /** Set on the game's real object by a staging, rather than on a template shape. */
   staged: boolean;
   updated_at: string | null;
+  /** Reads an image (a sampler the engine does not feed itself). */
+  textures: boolean;
 }
 
 /**
@@ -1237,6 +1239,8 @@ export interface LookdevIndex {
   specimens: LookdevSpecimen[];
   palette: LookdevPalette;
   direction: Record<DirectionAspect, { influences: number; written: number; parts: number }>;
+  /** The art direction's rules, ticked or not: `procedural_materials`. */
+  rules: Record<string, boolean>;
   typography: LookdevTypography;
   theme: LookdevTheme;
 }
@@ -1324,6 +1328,15 @@ export interface LookdevDetail extends LookdevSpecimen {
   animated: boolean;
   screen: LookdevScreen;
   bench: { ok: true; engine: string } | { ok: false; error: string } | null;
+  /** The models a material can be laid on (a material only): `shape` is what to ask for. */
+  meshes: LookdevMesh[];
+}
+
+/** A model a material can be laid on: the game's, the library's, or one dropped. */
+export interface LookdevMesh {
+  shape: string;
+  label: string;
+  source: "game" | "library" | "import";
 }
 
 export interface LookdevFrameQuery {
@@ -1944,6 +1957,17 @@ export const api = {
   gameViews: (project: string) =>
     get<{ project: string; views: GameView[] }>(`/api/projects/${encodeURIComponent(project)}/views`),
   lookdev: (project: string) => get<LookdevIndex>(`/api/projects/${encodeURIComponent(project)}/lookdev`),
+  /** Keeps a dropped glTF model for the project, to lay its materials on. */
+  importLookdevMesh: (project: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<LookdevMesh>(`/api/projects/${encodeURIComponent(project)}/lookdev-meshes`,
+      { method: "POST", body: form });
+  },
+  /** A rule of the art direction, ticked or not: the user's decision. */
+  setLookdevRule: (project: string, rule: string, value: boolean) =>
+    request<Record<string, boolean>>(`/api/projects/${encodeURIComponent(project)}/lookdev-rules`,
+      { method: "PUT", body: JSON.stringify({ rule, value }) }),
   lookdevSpecimen: (project: string, specimen: string) =>
     get<LookdevDetail>(`/api/projects/${encodeURIComponent(project)}/lookdev/${encodeURIComponent(specimen)}`),
   setLookdevState: (project: string, specimen: string, body: Partial<{

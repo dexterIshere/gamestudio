@@ -55,12 +55,19 @@ from typing import Any
 from ..net import find_free_port
 from ..store.folders import project_paths
 from . import colors, documents, fonts, influences, renders, survey
-from .context import studio
+from .context import space, studio
 from .errors import NotFound, ServiceError
 
 SCRIPT = Path(__file__).resolve().parent.parent / "godot" / "lookdev_bench.gd"
 STATE_FOLDER = "lookdev"
-SHAPES = ("sphere", "plane", "cube")
+SHAPES = ("sphere", "plane", "cube", "cylinder", "capsule", "torus")
+# A material can also be laid on a model: `mesh:game:<file>` (the game's),
+# `mesh:asset:<id>` (the studio's library), `mesh:import:<file>` (one the user
+# dropped, kept in the workspace). glTF only: the bench reads it as is.
+MESH = "mesh:"
+MESH_TYPES = (".glb", ".gltf")
+MESH_FOLDER = "lookdev-meshes"
+MAX_MESH_BYTES = 200 * 1024 * 1024
 # The screens a specimen is seen on, by their resolution upright: a phone, a
 # tablet, a desktop monitor (always landscape). A game held in landscape turns
 # the first two (`_devices`).
@@ -89,6 +96,17 @@ MAX_SETUP = 64 * 1024
 THUMB_VERSION = 4
 # The game colors that dress the page: the most frequent, not the whole palette.
 THEME_COLORS = 8
+# The art direction's rules the user ticks in the Universe, and what each asks
+# of whoever touches the game's look (the agents' briefs carry them).
+RULES = {
+    "procedural_materials": "Materials are procedural: no image texture -- matter, patterns "
+                            "and wear are computed in the shader (noise, gradients, distance "
+                            "fields).",
+}
+RULES_FILE = "rules.json"
+# A shader sampler fed by the engine rather than an image: the screen, depth,
+# normals behind the surface.
+_ENGINE_SAMPLERS = ("screen_texture", "depth_texture", "normal_roughness_texture")
 
 _READY = re.compile(r"GAMESTUDIO_BENCH: (READY (\d+)|FAILED (.*))")
 _SHADER_PARAM = re.compile(r"^shader_parameter/(\w+)\s*=\s*(.+)$")
@@ -429,8 +447,50 @@ def _specimens(project: str) -> tuple[Path, dict[str, Any], list[dict[str, Any]]
             or bool(state["setup"]),
             "uniforms": len(shader["uniforms"]), "users": shader.get("users", []),
             "staged": bool(state["setup"]), "updated_at": state["updated_at"],
+            "textures": _samples_images(shader["uniforms"]),
         })
     return root, game, found
+
+
+def _samples_images(uniforms: list[str]) -> bool:
+    """Whether a shader reads an image: a sampler the engine does not feed itself.
+
+    The survey writes each setting as `name (type, hint) = default`.
+    """
+    for uniform in uniforms:
+        kind, _, hint = uniform.partition("(")[2].partition(")")[0].partition(",")
+        if kind.strip().startswith("sampler") and not any(
+                engine in hint for engine in _ENGINE_SAMPLERS):
+            return True
+    return False
+
+
+def rules(project: str) -> dict[str, bool]:
+    """The art direction's rules, ticked or not."""
+    path = _state_dir(project) / RULES_FILE
+    try:
+        held = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        held = {}
+    return {rule: bool(held.get(rule)) for rule in RULES}
+
+
+def set_rule(project: str, rule: str, value: bool) -> dict[str, bool]:
+    """Tick or untick a rule of the art direction. A user's decision."""
+    if rule not in RULES:
+        raise NotFound(f"unknown rule: {rule} (known: {', '.join(RULES)})")
+    held = {**rules(project), rule: bool(value)}
+    path = _state_dir(project) / RULES_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(held, indent=1) + "\n", encoding="utf-8")
+    return held
+
+
+def rule_lines(project: str) -> list[str]:
+    """The ticked rules, as a brief states them."""
+    held = rules(project)
+    return [f"- **{RULES[rule].split(':')[0]}** -- {RULES[rule].split(':', 1)[1].strip()}"
+            for rule in RULES if held[rule]]
 
 
 def _find(project: str, specimen: str) -> tuple[Path, dict[str, Any], dict[str, Any]]:
@@ -479,7 +539,7 @@ def universe(project: str) -> dict[str, Any]:
     root, game, found = _specimens(project)
     typography = fonts.typography(root, game)
     return {"project": project, "specimens": found, "palette": colors.palette(root, game),
-            "direction": influences.summary(project),
+            "direction": influences.summary(project), "rules": rules(project),
             "typography": typography, "theme": theme(project, game, found, typography)}
 
 
@@ -494,7 +554,8 @@ def specimen(project: str, specimen_id: str) -> dict[str, Any]:
     target = _target(project, specimen_id, fresh=True)
     entry, state = target["entry"], target["state"]
     detail = {**entry, **state, "presets": target["presets"], "uniform_list": [],
-              "bench": None, "animated": target["animated"], "screen": target["screen"]}
+              "bench": None, "animated": target["animated"], "screen": target["screen"],
+              "meshes": meshes(project) if entry["kind"] == "spatial" else []}
     if entry["renderable"]:
         bench = _bench_for(project, entry)
         try:
@@ -538,7 +599,7 @@ def _target(project: str, specimen_id: str, *, fresh: bool = False) -> dict[str,
         text = source.read_text(encoding="utf-8", errors="replace")
     except OSError:
         text = ""
-    target = {"entry": entry, "state": state, "source": source, "root": root,
+    target = {"entry": entry, "state": state, "source": source, "root": root, "project": project,
               "presets": _presets(root, game, shader, entry["res_path"]),
               "screen": _screen(game, entry),
               # A shader reading the time is animated; a game object may carry
@@ -732,10 +793,16 @@ def _pose(bench: Bench, target: dict[str, Any], preset: str, shape: str,
     params = _preset(target["presets"], preset)
     shape = shape or state["shape"] or ("plane" if "plane" in entry["title"] else "sphere")
     size = params.get("node_size") if isinstance(params.get("node_size"), list) else None
+    command: dict[str, Any] = {"op": "load", "shader": entry["res_path"], "shape": shape,
+                               "size": size or []}
+    if shape.startswith(MESH):
+        # A model laid on the bench: read from its file, as it is now.
+        mesh = _mesh_path(target["project"], shape)
+        command.update(shape="mesh", mesh=str(mesh))
+        stamp = (stamp, mesh.stat().st_mtime_ns)
     key = ("load", entry["res_path"], shape, json.dumps(size), stamp)
     if bench.current != key:
-        loaded = bench.ask({"op": "load", "shader": entry["res_path"], "shape": shape,
-                            "size": size or []})
+        loaded = bench.ask(command)
         if not loaded.get("ok"):
             bench.current = None
             raise _refused(bench, entry["res_path"], loaded)
@@ -769,6 +836,83 @@ def _posed(bench: Bench, target: dict[str, Any], preset: str, shape: str,
     raise ServiceError("the Godot bench does not keep the specimen")  # pragma: no cover
 
 
+def _imported(project: str) -> Path:
+    return project_paths(studio().settings, project).workspace / MESH_FOLDER
+
+
+def meshes(project: str) -> list[dict[str, str]]:
+    """The models a material can be laid on: the game's, the library's, the dropped ones."""
+    root = project_paths(studio().settings, project).root
+    found: list[dict[str, str]] = []
+    if project_paths(studio().settings, project).linked:
+        for path in sorted(root.rglob("*")):
+            relative = path.relative_to(root)
+            if (path.suffix.lower() in MESH_TYPES and path.is_file()
+                    and not any(part.startswith(".") or part in survey.SKIPPED
+                                for part in relative.parts)
+                    and not survey._is_dev(relative.as_posix())):
+                found.append({"shape": f"{MESH}game:{relative.as_posix()}", "label": path.stem,
+                              "source": "game"})
+    st = space(project)
+    for asset in st.db.list_assets(kind="mesh", limit=200):
+        path = st.store.path_for(asset.id)
+        if path is not None and path.suffix.lower() in MESH_TYPES:
+            label = str(asset.meta.get("name") or asset.meta.get("entity") or asset.id[:8])
+            found.append({"shape": f"{MESH}asset:{asset.id}", "label": label,
+                          "source": "library"})
+    folder = _imported(project)
+    if folder.is_dir():
+        for path in sorted(folder.iterdir()):
+            if path.suffix.lower() in MESH_TYPES:
+                found.append({"shape": f"{MESH}import:{path.name}", "label": path.stem,
+                              "source": "import"})
+    return found
+
+
+def _mesh_path(project: str, shape: str) -> Path:
+    """The file a `mesh:` shape names, which must be one `meshes` offers."""
+    if not any(entry["shape"] == shape for entry in meshes(project)):
+        raise NotFound(f"mesh not found: {shape.removeprefix(MESH)}")
+    source, _, name = shape.removeprefix(MESH).partition(":")
+    if source == "game":
+        return project_paths(studio().settings, project).root / name
+    if source == "asset":
+        path = space(project).store.path_for(name)
+        if path is None:
+            raise NotFound(f"mesh not found: {name}")
+        return path
+    return _imported(project) / name
+
+
+def _check_shape(project: str, shape: str) -> None:
+    if shape.startswith(MESH):
+        _mesh_path(project, shape)
+    elif shape and shape not in SHAPES:
+        raise ServiceError(f"unknown shape: {shape} (expected: {', '.join(SHAPES)}, or a "
+                           "mesh)")
+
+
+def import_mesh(project: str, data: bytes, filename: str) -> dict[str, str]:
+    """Keep a dropped model for the project, to lay materials on. The game is not touched."""
+    suffix = Path(filename).suffix.lower()
+    if suffix not in MESH_TYPES:
+        raise ServiceError(f"format refused: {suffix or '?'} (expected: "
+                           f"{', '.join(MESH_TYPES)})")
+    if not data:
+        raise ServiceError("empty file: nothing to drop")
+    if len(data) > MAX_MESH_BYTES:
+        raise ServiceError(f"model too heavy: {len(data) // (1024 * 1024)} MB (at most "
+                           f"{MAX_MESH_BYTES // (1024 * 1024)} MB)")
+    folder = _imported(project)
+    folder.mkdir(parents=True, exist_ok=True)
+    stem = documents.slug(Path(filename).stem)[:48] or "mesh"
+    target, n = folder / f"{stem}{suffix}", 2
+    while target.exists() and target.read_bytes() != data:
+        target, n = folder / f"{stem}-{n}{suffix}", n + 1
+    target.write_bytes(data)
+    return {"shape": f"{MESH}import:{target.name}", "label": target.stem, "source": "import"}
+
+
 def frame(project: str, specimen_id: str, *, params: dict[str, Any] | None = None,
           preset: str = "", shape: str = "", yaw: float = 0.0, pitch: float = 0.0,
           zoom: float = 1.0, scale: float = 1.0, format: str = "jpg",
@@ -786,8 +930,7 @@ def frame(project: str, specimen_id: str, *, params: dict[str, Any] | None = Non
     aspect leaves; a material or a sky through a camera of that format.
     `scale` then does not apply. Free, local.
     """
-    if shape and shape not in SHAPES:
-        raise ServiceError(f"unknown shape: {shape} (expected: {', '.join(SHAPES)})")
+    _check_shape(project, shape)
     if not 0.25 <= scale <= 4:
         raise ServiceError("scale must be between 0.25 and 4")
     if format not in FORMATS:
@@ -880,8 +1023,7 @@ def set_state(project: str, specimen_id: str, *, setup: str | None = None,
                                "game object to place on the bench")
         state["setup"] = code + "\n" if code else ""
     if shape is not None:
-        if shape and shape not in SHAPES:
-            raise ServiceError(f"unknown shape: {shape}")
+        _check_shape(project, shape)
         state["shape"] = shape
     if preset is not None:
         state["preset"] = preset

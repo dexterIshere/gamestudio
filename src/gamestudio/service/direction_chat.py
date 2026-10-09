@@ -38,7 +38,7 @@ from typing import Any
 
 from ..store.folders import project_paths
 from ..terminal import harnesses
-from . import documents, influences
+from . import documents, influences, lookdev
 from .context import studio
 from .errors import NotFound, ServiceError
 
@@ -159,6 +159,9 @@ def _held(project: str) -> str:
                 lines.append("    - no image yet")
         if not held[name]["influences"]:
             lines.append("  - none yet")
+    ruled = lookdev.rule_lines(project)
+    if ruled:
+        lines += ["  Rules the user ticked:", *(f"  {line}" for line in ruled)]
     look = held["style"]["parts"]["look"]
     if look["written"]:
         text = look["text"].strip()

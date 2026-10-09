@@ -1236,6 +1236,10 @@ def lookdev_brief(project: str, specimen: str) -> dict[str, Any]:
         except ServiceError as exc:
             seen = f"- none: {exc}"
     branch = f"studio/lookdev-{specimen}"
+    # The art direction's ticked rules: they bind a material's rework.
+    ruled = "\n".join(lookdev.rule_lines(project)) if entry["kind"] == "spatial" else ""
+    if ruled and entry.get("textures"):
+        ruled += "\n- This shader reads an image today: say so before reworking it."
 
     text = f"""# Brief — discussion on the shader “{title}” (art direction)
 
@@ -1285,7 +1289,7 @@ a few tens of milliseconds.
 - Nothing paid without the user's explicit consent in the discussion.
 - A contradiction between the shader, the written art direction and the game
   is raised as a question to the user; it is not settled alone.
-"""
+{ruled}"""
     path = _write(project, f"lookdev-{specimen}.md", text)
     prompt = (f"We are looking at the shader “{title}” in the Universe of project {project}: "
               f"read the brief {path}, look at it, tell me in two lines what you see, then "
@@ -1412,6 +1416,8 @@ def lookdev_aspect_brief(project: str, aspect: str) -> dict[str, Any]:
     cards = [f"- `{entry['path']}` — {entry['title']}"
              for entry in documents.documents(project, "design/direction")]
     branch = f"studio/lookdev-{aspect}"
+    # The art direction's ticked rules bind the materials.
+    ruled = "\n".join(lookdev.rule_lines(project)) if aspect == "materials" else ""
 
     if aspect == "colors":
         palette = colors.palette(root, game)
@@ -1442,6 +1448,7 @@ def lookdev_aspect_brief(project: str, aspect: str) -> dict[str, Any]:
                      + (f" and {len(entry['users']) - MAX_BRIEF_USES} more"
                         if len(entry["users"]) > MAX_BRIEF_USES else "")
                      if entry["users"] else "nothing the game map can see")
+                  + (" — reads an image" if entry.get("textures") else "")
                   + f" — `lookdev_brief(project=\"{project}\", specimen=\"{entry['id']}\")`"
                   for entry in shown[:MAX_BRIEF_SHADERS]]
         if len(shown) > MAX_BRIEF_SHADERS:
@@ -1496,7 +1503,7 @@ The game's own docs are authoritative: cite them, never copy them.
 - Nothing paid without the user's explicit consent in the discussion.
 - A contradiction between the game and the written art direction is raised
   as a question to the user; it is not settled alone.
-"""
+{ruled}"""
     path = _write(project, f"lookdev-aspect-{aspect}.md", text)
     prompt = (f"We are looking at {subject} in the Universe of project {project}: read the "
               f"brief {path}, tell me in a few lines what you see, then wait for my request.")

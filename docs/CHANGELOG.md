@@ -53,6 +53,17 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   chosen one is written (file, and the property, theme key, constant or
   shader setting carrying it); a transparent color shows over a checkerboard.
   A material's colors are shown in the Materials section, under its shaders.
+- **A material laid on a model**: besides the sphere, the plane and the cube,
+  a cylinder, a capsule, a torus -- or a glTF model: the game's, the
+  library's, or one dropped in the material's room, kept for the project. The
+  bench reads it as is, lays the material on every surface, centers and
+  scales it.
+- **Materials can be bound to be procedural**: a rule ticked in the Materials
+  section, carried by the briefs of whoever reworks a material; a material
+  whose shader reads an image then says so.
+- **Base colors and passing colors**: each aspect's colors split between those
+  it builds on -- written in several files, or carried by a constant, a theme
+  key or a shader setting -- and those written once, in passing.
 - **The game's colors, by aspect and by place** (`service/colors.py`): every
   literal color of the scenes, scripts and resources, and now the
   `source_color` settings of the shaders. Its aspect follows what paints it:

@@ -839,12 +839,14 @@ def lookdev_set(project: str, specimen: str, setup: str | None = None,
                 shape: str | None = None, preset: str | None = None) -> dict[str, Any]:
     """Write how to present a specimen. The game is never modified.
 
+    `shape`: `sphere`, `plane`, `cube`, `cylinder`, `capsule`, `torus`, or a
+    model -- one of the `meshes` `lookdev_specimen` lists (`mesh:…`).
+
     - `setup`: for a shader that only lives on its object (water that reads
       its planet's mesh), a GDScript whose `func build() -> Node3D` builds that
       object the way the game does; the bench places, lights and frames it.
       "" goes back to the shape. Check with `lookdev_look` afterwards.
-    - `shape` (`sphere`, `plane`, `cube`) and `preset`: the shape and the use
-      shown by default.
+    - `shape` and `preset`: the shape (or model) and the use shown by default.
     """
     return lookdev_service.set_state(project, specimen, setup=setup, shape=shape, preset=preset)
 
@@ -1959,6 +1961,10 @@ HUMAN_ONLY: dict[str, str] = {
     "influences.dismiss": "the user's answer to a proposal",
     "direction_chat.stop_all": "server shutdown: no agent answering in the Universe outlives it",
     "views.image": "the Views page's thumbnails; an agent draws a view with `render_scene`",
+    "lookdev.set_rule": "a rule of the art direction is the user's decision; agents read the "
+                        "ticked ones in `lookdev` and in their briefs",
+    "lookdev.import_mesh": "dropping a model is the user's gesture; `lookdev_specimen` lists "
+                           "the meshes a material can be laid on",
     "direction_chat.draft": "the user asks a model to look at the influences' images and write "
                             "a prompt; an agent looks itself, then `influence_propose`",
     "direction_chat.thread": "the user's own conversation in the Universe; an agent works on "

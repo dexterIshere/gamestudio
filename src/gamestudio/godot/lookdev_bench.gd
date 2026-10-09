@@ -13,8 +13,10 @@
 ##
 ## - `{"op": "load", "shader": "res://…", "shape": "sphere", "size": [w, h]}`:
 ##   put the shader on its template -- a rectangle of its size for a
-##   `canvas_item`, a lit shape for a `spatial`, a sky around the camera for a
-##   `sky`. Answers the shader's settings as Godot reads them (`uniforms`:
+##   `canvas_item`, a lit shape for a `spatial` (`sphere`, `plane`, `cube`,
+##   `cylinder`, `capsule`, `torus`, or `mesh` with `"mesh": "/path.glb"`: a
+##   glTF model, its every surface taking the material, centered and scaled to
+##   the frame), a sky around the camera for a `sky`. Answers the shader's settings as Godot reads them (`uniforms`:
 ##   name, type, hint, default, group).
 ## - `{"op": "stage", "setup": "/path/setup.gd"}`: put the game's real object
 ##   -- the one the script's `build()` returns (a planet, a building) -- lit
@@ -288,7 +290,9 @@ func _load(command: Dictionary) -> Dictionary:
 			_stage.add_child(_rect)
 		"spatial":
 			_base = Vector2i(512, 512)
-			_stage = _scene_3d(str(command.get("shape", "sphere")))
+			_stage = _scene_3d(str(command.get("shape", "sphere")), str(command.get("mesh", "")))
+			if _stage == null:
+				return {"ok": false, "error": "mesh not readable: " + str(command.get("mesh", ""))}
 		"sky":
 			_base = Vector2i(768, 432)
 			_stage = _sky_3d()
@@ -301,25 +305,53 @@ func _load(command: Dictionary) -> Dictionary:
 	return {"ok": true, "kind": _kind, "size": [_base.x, _base.y], "uniforms": _uniforms(shader)}
 
 
-func _scene_3d(shape: String) -> Node3D:
+func _scene_3d(shape: String, mesh_path: String = "") -> Node3D:
 	var stage := Node3D.new()
-	var mesh := MeshInstance3D.new()
-	match shape:
-		"plane":
-			var plane := PlaneMesh.new()
-			plane.size = Vector2(2.4, 2.4)
-			plane.subdivide_width = 128
-			plane.subdivide_depth = 128
-			mesh.mesh = plane
-		"cube":
-			mesh.mesh = BoxMesh.new()
-		_:
-			var sphere := SphereMesh.new()
-			sphere.radial_segments = 128
-			sphere.rings = 64
-			mesh.mesh = sphere
-	mesh.material_override = _material
-	stage.add_child(mesh)
+	if shape == "mesh":
+		var model := _model(mesh_path)
+		if model == null:
+			return null
+		stage.add_child(model)
+	else:
+		var mesh := MeshInstance3D.new()
+		match shape:
+			"plane":
+				var plane := PlaneMesh.new()
+				plane.size = Vector2(2.4, 2.4)
+				plane.subdivide_width = 128
+				plane.subdivide_depth = 128
+				mesh.mesh = plane
+			"cube":
+				mesh.mesh = BoxMesh.new()
+			"cylinder":
+				var cylinder := CylinderMesh.new()
+				cylinder.top_radius = 0.45
+				cylinder.bottom_radius = 0.45
+				cylinder.height = 1.1
+				cylinder.radial_segments = 96
+				mesh.mesh = cylinder
+			"capsule":
+				var capsule := CapsuleMesh.new()
+				capsule.radius = 0.4
+				capsule.height = 1.4
+				capsule.radial_segments = 96
+				capsule.rings = 32
+				mesh.mesh = capsule
+			"torus":
+				var torus := TorusMesh.new()
+				torus.inner_radius = 0.3
+				torus.outer_radius = 0.65
+				torus.rings = 96
+				torus.ring_segments = 48
+				mesh.mesh = torus
+				mesh.rotation_degrees = Vector3(70, 0, 0)
+			_:
+				var sphere := SphereMesh.new()
+				sphere.radial_segments = 128
+				sphere.rings = 64
+				mesh.mesh = sphere
+		mesh.material_override = _material
+		stage.add_child(mesh)
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-40, -35, 0)
 	stage.add_child(sun)
@@ -338,6 +370,50 @@ func _scene_3d(shape: String) -> Node3D:
 	_camera.fov = 40
 	_pivot.add_child(_camera)
 	return stage
+
+
+## A glTF model from disk, every surface taking the material, centered and
+## scaled so its largest side fills the frame like the sphere. Null when it
+## cannot be read.
+func _model(path: String) -> Node3D:
+	if path == "" or not FileAccess.file_exists(path):
+		return null
+	var document := GLTFDocument.new()
+	var state := GLTFState.new()
+	if document.append_from_file(path, state) != OK:
+		return null
+	var scene := document.generate_scene(state) as Node3D
+	if scene == null:
+		return null
+	var bounds := AABB()
+	var first := true
+	for node in scene.find_children("*", "MeshInstance3D", true, false):
+		var mesh := node as MeshInstance3D
+		mesh.material_override = _material
+		var placed := _placed(mesh, scene) * mesh.get_aabb()
+		bounds = placed if first else bounds.merge(placed)
+		first = false
+	if first:
+		scene.free()
+		return null
+	var holder := Node3D.new()
+	var side := maxf(bounds.size.x, maxf(bounds.size.y, bounds.size.z))
+	var fit := 1.3 / maxf(side, 0.0001)
+	holder.scale = Vector3.ONE * fit
+	holder.position = -bounds.get_center() * fit
+	holder.add_child(scene)
+	return holder
+
+
+## A node's transform relative to an ancestor, before either is in the tree.
+func _placed(node: Node, root: Node) -> Transform3D:
+	var transform := Transform3D.IDENTITY
+	var current := node
+	while current != null and current != root:
+		if current is Node3D:
+			transform = (current as Node3D).transform * transform
+		current = current.get_parent()
+	return transform
 
 
 func _sky_3d() -> Node3D:

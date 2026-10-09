@@ -50,7 +50,17 @@ const SHAPES = [
   { value: "sphere", label: t("Sphere") },
   { value: "plane", label: t("Plane") },
   { value: "cube", label: t("Cube") },
+  { value: "cylinder", label: t("Cylinder") },
+  { value: "capsule", label: t("Capsule") },
+  { value: "torus", label: t("Torus") },
 ];
+// The shape choice that opens the file picker: a model to lay the material on.
+const IMPORT_MESH = "import-mesh";
+const MESH_SOURCES: Record<string, string> = {
+  game: t("Game"),
+  library: t("Library"),
+  import: t("Dropped"),
+};
 
 /** Godot: a range hint (`hint_range`). */
 const HINT_RANGE = 1;
@@ -229,6 +239,20 @@ const FOLDED_COLORS = 24;
 const PALETTE_ASPECTS: LookdevAspect[] = ["interface", "sky", "other"];
 const MATERIAL_ASPECTS: LookdevAspect[] = ["materials"];
 
+/** A constant's name (`TEXT_DIM`) or a theme key (`Button/colors/font_color`). */
+const NAMED = /^[A-Z][A-Z0-9_]*$|\//;
+
+/**
+ * A color the aspect builds on: written in several files, or carried by a
+ * constant, a theme key or a shader setting -- where a palette is defined.
+ * The others are written once, in passing.
+ */
+function isBase(color: LookdevColor, aspect: LookdevAspect): boolean {
+  const uses = color.uses.filter((use) => use.aspect === aspect);
+  return uses.length > 1 || uses.some((use) =>
+    /\.gdshader(inc)?$/.test(use.file) || use.names.some((name) => NAMED.test(name)));
+}
+
 /** The colors used for these aspects, the most used for them first. */
 function colorsFor(palette: LookdevPalette, aspects: LookdevAspect[]): LookdevColor[] {
   const weight = (color: LookdevColor) => aspects.reduce((total, aspect) => total + (color.aspects[aspect] ?? 0), 0);
@@ -256,9 +280,36 @@ function PaletteSection({ palette, aspects }: { palette: LookdevPalette; aspects
   const weight = (color: LookdevColor) => aspects.reduce((total, aspect) => total + (color.aspects[aspect] ?? 0), 0);
   const total = colors.reduce((sum, color) => sum + weight(color), 0);
 
+  const list = (aspect: LookdevAspect, colors: LookdevColor[]) => (
+    <ul className="lookdev-swatches">
+      {colors.map((color) => {
+        const uses = color.uses.filter((use) => use.aspect === aspect);
+        const name = uses.find((use) => use.names.length > 0)?.names[0];
+        return (
+          <li key={color.hex}>
+            <button type="button" className="lookdev-swatch" aria-pressed={color.hex === picked.hex}
+                    onClick={() => setChosen(color.hex)}
+                    title={uses.map((use) => use.file).join("\n")}>
+              <span className="lookdev-swatch-chip lookdev-chip"
+                    style={{ "--chip": color.hex } as React.CSSProperties} />
+              <span className="lookdev-swatch-text">
+                <span className="mono">{color.hex}</span>
+                <span className="num">×{color.aspects[aspect]}</span>
+                {name && <span className="mono lookdev-swatch-key">{name}</span>}
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
   const swatches = groups.map((group) => {
     const open = unfolded.includes(group.aspect);
-    const shown = open ? group.colors : group.colors.slice(0, FOLDED_COLORS);
+    // The colors the aspect builds on first, then the ones written once, in passing.
+    const base = group.colors.filter((color) => isBase(color, group.aspect));
+    const passing = group.colors.filter((color) => !isBase(color, group.aspect));
+    const split = base.length > 0 && passing.length > 0;
+    const shown = open ? passing : passing.slice(0, Math.max(0, FOLDED_COLORS - base.length));
     return (
       <section key={group.aspect} className="lookdev-subsection">
         <h3>
@@ -267,34 +318,25 @@ function PaletteSection({ palette, aspects }: { palette: LookdevPalette; aspects
             {tn(group.colors.length, "{n} color", "{n} colors")}
           </span>
         </h3>
-        <ul className="lookdev-swatches">
-          {shown.map((color) => {
-            const uses = color.uses.filter((use) => use.aspect === group.aspect);
-            const name = uses.find((use) => use.names.length > 0)?.names[0];
-            return (
-              <li key={color.hex}>
-                <button type="button" className="lookdev-swatch" aria-pressed={color.hex === picked.hex}
-                        onClick={() => setChosen(color.hex)}
-                        title={uses.map((use) => use.file).join("\n")}>
-                  <span className="lookdev-swatch-chip lookdev-chip"
-                        style={{ "--chip": color.hex } as React.CSSProperties} />
-                  <span className="lookdev-swatch-text">
-                    <span className="mono">{color.hex}</span>
-                    <span className="num">×{color.aspects[group.aspect]}</span>
-                    {name && <span className="mono lookdev-swatch-key">{name}</span>}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-        {group.colors.length > FOLDED_COLORS && (
+        {split && (
+          <h4 className="lookdev-palette-kind">
+            {t("Base colors")} <span className="num">{base.length}</span>
+          </h4>
+        )}
+        {base.length > 0 && list(group.aspect, base)}
+        {split && (
+          <h4 className="lookdev-palette-kind">
+            {t("Passing colors")} <span className="num">{passing.length}</span>
+          </h4>
+        )}
+        {shown.length > 0 && list(group.aspect, shown)}
+        {shown.length < passing.length || open ? (
           <button type="button" className="btn btn-ghost lookdev-unfold"
                   onClick={() => setUnfolded((held) => open
                     ? held.filter((aspect) => aspect !== group.aspect) : [...held, group.aspect])}>
-            {open ? t("Show fewer") : t("Show all {n}", { n: group.colors.length })}
+            {open ? t("Show fewer") : t("Show all {n}", { n: passing.length })}
           </button>
-        )}
+        ) : null}
       </section>
     );
   });
@@ -485,6 +527,18 @@ function Zone({ project }: { project: string }) {
   const { data, error, isLoading } = useLookdev(project);
   const [discussing, setDiscussing] = useState<LookdevSpecimen | null>(null);
   const [topic, setTopic] = useState<LookdevTopic | null>(null);
+  const queryClient = useQueryClient();
+  const { notify } = useStudio();
+  // A rule of the art direction: ticked here, carried by the agents' briefs.
+  const setRule = async (rule: string, value: boolean) => {
+    try {
+      const rules = await api.setLookdevRule(project, rule, value);
+      queryClient.setQueryData<LookdevIndex>(["lookdev", project],
+        (held) => (held ? { ...held, rules } : held));
+    } catch (error) {
+      notify({ kind: "error", title: t("Rule not saved"), body: tr((error as Error).message) });
+    }
+  };
   const [open, setOpen] = useState<string | null>(null);
   // A saved specimen changed in the game: its thumbnail is requested again.
   const [saved, setSaved] = useState<Record<string, number>>({});
@@ -573,6 +627,13 @@ function Zone({ project }: { project: string }) {
           <section className={`lookdev-room is-${section}`}>
             <div className="lookdev-room-head">
               <h2>{current.label}</h2>
+              {section === "materials" && (
+                <label className="lookdev-rule">
+                  {t("Must be procedural")}
+                  <Toggle checked={data.rules.procedural_materials ?? false} label={t("Must be procedural")}
+                          onChange={(value) => void setRule("procedural_materials", value)} />
+                </label>
+              )}
               {section !== "style" && section !== "game" && (
                 <button type="button" className="btn btn-secondary btn-icon" title={t("Discuss")}
                         aria-label={t("Discuss {title}", { title: current.label })} onClick={() => setTopic(section)}>
@@ -592,6 +653,7 @@ function Zone({ project }: { project: string }) {
                   <ul className="lookdev-grid">
                     {shown.map((entry) => (
                       <SpecimenCard key={entry.id} project={project} entry={entry} onOpen={() => setOpen(entry.id)}
+                                    procedural={section === "materials" && (data.rules.procedural_materials ?? false)}
                                     version={`${entry.updated_at ?? ""}-${saved[entry.id] ?? 0}`}
                                     onDiscuss={() => setDiscussing(entry)} />
                     ))}
@@ -634,10 +696,12 @@ function Zone({ project }: { project: string }) {
   );
 }
 
-function SpecimenCard({ project, entry, version, onOpen, onDiscuss }: {
+function SpecimenCard({ project, entry, version, procedural = false, onOpen, onDiscuss }: {
   project: string;
   entry: LookdevSpecimen;
   version: string;
+  /** Materials must be procedural: one that reads an image says so. */
+  procedural?: boolean;
   onOpen: () => void;
   onDiscuss: () => void;
 }) {
@@ -662,6 +726,7 @@ function SpecimenCard({ project, entry, version, onOpen, onDiscuss }: {
           <span className="lookdev-tags">
             <span>{KINDS[entry.kind] ?? entry.kind}</span>
             {entry.staged && <span>{t("Game object")}</span>}
+            {procedural && entry.textures && <span className="lookdev-tag-warn">{t("Reads an image")}</span>}
           </span>
         </span>
       </button>
@@ -849,8 +914,23 @@ function Inspector({ project, id, background, paused, onClose, onDiscuss, onSave
     keep({ preset: value });
   };
   const chooseShape = (value: string) => {
+    if (value === IMPORT_MESH) {
+      meshPicker.current?.click();
+      return;
+    }
     setShape(value);
     keep({ shape: value });
+  };
+  // A dropped model joins the project's, then carries the material at once.
+  const meshPicker = useRef<HTMLInputElement>(null);
+  const importMesh = async (file: File) => {
+    try {
+      const mesh = await api.importLookdevMesh(project, file);
+      await client.invalidateQueries({ queryKey: ["lookdevSpecimen", project, id] });
+      chooseShape(mesh.shape);
+    } catch (failure) {
+      notify({ kind: "error", title: t("Model refused"), body: tr((failure as Error).message) });
+    }
   };
   const [history, edit] = useReducer(edits, NO_EDITS);
   const overrides = history.present;
@@ -1005,7 +1085,24 @@ function Inspector({ project, id, background, paused, onClose, onDiscuss, onSave
             )}
             {data.kind === "spatial" && !data.staged && (
               <ToolGroup label={t("Shape")}>
-                <Seg value={shape ?? (data.shape || "sphere")} options={SHAPES} onChange={chooseShape} />
+                <Select
+                  label={t("Shape")}
+                  value={shape ?? (data.shape || "sphere")}
+                  onChange={chooseShape}
+                  options={[
+                    ...SHAPES,
+                    ...data.meshes.map((mesh, rank) => ({
+                      value: mesh.shape, label: mesh.label, divider: rank === 0,
+                      detail: MESH_SOURCES[mesh.source] ?? mesh.source,
+                    })),
+                    { value: IMPORT_MESH, label: t("Drop a model…"), divider: true, muted: true },
+                  ]}
+                />
+                <input ref={meshPicker} type="file" accept=".glb,.gltf" hidden onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (file) void importMesh(file);
+                }} />
               </ToolGroup>
             )}
             <ToolGroup end>

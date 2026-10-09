@@ -7300,6 +7300,18 @@ details.more .more-body {
   font-size: var(--text-xl);
   text-transform: uppercase;
 }
+/* A rule of the art direction, ticked in its section's head. */
+.lookdev-rule {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.lookdev-tag-warn {
+  color: var(--warn);
+}
 /* The aspects of the art direction, one section each. */
 .lookdev-sections {
   display: flex;
@@ -7414,6 +7426,26 @@ details.more .more-body {
   opacity: 0.65;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* A group's colors: the base it builds on, then those written in passing. */
+.lookdev-palette-kind {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: var(--space-4) 0 var(--space-3);
+  font-family: inherit;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.lookdev-subsection h3 + .lookdev-palette-kind {
+  margin-top: 0;
+}
+.lookdev-palette-kind .num {
+  font-weight: 400;
+  opacity: 0.7;
 }
 .lookdev-unfold {
   margin-top: var(--space-3);
