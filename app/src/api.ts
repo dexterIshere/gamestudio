@@ -1083,6 +1083,27 @@ export interface LookdevTypography {
   samples: string[];
 }
 
+/** A main page of the game: a screen or a world the player moves to. */
+export interface GameView {
+  id: string;
+  /** Its interface card's title, else its file's. */
+  title: string;
+  file: string;
+  res_path: string;
+  root: string;
+  kind: "screen" | "world-2d" | "world-3d";
+  /** The game starts on it. */
+  entry: boolean;
+  /** The scripts that open it. */
+  opened_from: string[];
+  script: string;
+  nodes: number;
+  /** The interface card describing it. */
+  card: { name: string; title: string } | null;
+  /** Changes with its scene: its image is asked for again. */
+  version: string;
+}
+
 /** The aspects of the art direction a color is written for. */
 export type LookdevAspect = "interface" | "materials" | "sky" | "other";
 
@@ -1333,6 +1354,12 @@ export function lookdevFrameUrl(project: string, specimen: string, query: Lookde
 
 export function lookdevThumbUrl(project: string, specimen: string, version = ""): string {
   return withToken(`${apiBase()}/api/projects/${encodeURIComponent(project)}/lookdev/${encodeURIComponent(specimen)}/thumb?v=${encodeURIComponent(version)}`);
+}
+
+/** A view drawn by the game's engine: drawn the first time, then kept until its scene changes. */
+export function gameViewImageUrl(project: string, view: string, version: string): string {
+  return withToken(`${apiBase()}/api/projects/${encodeURIComponent(project)}/views/${
+    encodeURIComponent(view)}/image?v=${encodeURIComponent(version)}`);
 }
 
 export function lookdevFontUrl(project: string, file: string): string {
@@ -1914,6 +1941,8 @@ export const api = {
     post<Queued & { reference_asset_id: string | null }>(
       `${documentPath(project, name)}/generate${shelf(folder)}`, body,
     ),
+  gameViews: (project: string) =>
+    get<{ project: string; views: GameView[] }>(`/api/projects/${encodeURIComponent(project)}/views`),
   lookdev: (project: string) => get<LookdevIndex>(`/api/projects/${encodeURIComponent(project)}/lookdev`),
   lookdevSpecimen: (project: string, specimen: string) =>
     get<LookdevDetail>(`/api/projects/${encodeURIComponent(project)}/lookdev/${encodeURIComponent(specimen)}`),

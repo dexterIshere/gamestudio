@@ -517,6 +517,14 @@ export function useGenerateCard() {
 /* ------------------------------------------------------------------- lookdev */
 
 /** The game's specimens, and the dress that presents them. */
+/** The game's main pages, read from its files. */
+export const useGameViews = (project: string) =>
+  useQuery({
+    queryKey: ["views", project],
+    queryFn: () => api.gameViews(project),
+    enabled: Boolean(project),
+  });
+
 export const useLookdev = (project: string) =>
   useQuery({
     queryKey: ["lookdev", project],

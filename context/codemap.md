@@ -77,6 +77,7 @@ repository again. A file without a summary is a header to write.
 - `src/gamestudio/service/survey.py` — A game's survey: what its folder already contains, read without running anything.
 - `src/gamestudio/service/trash.py` — A project's trash: what the studio removes from the game, kept so it can be put back.
 - `src/gamestudio/service/video.py` — Reference video: extract a batch of usable frames from it.
+- `src/gamestudio/service/views.py` — The game's views: its main pages, found in its files, each drawn by its own engine.
 - `src/gamestudio/service/workspace.py` — The workspace: every project summarised, with a readable report for each.
 - `src/gamestudio/service/world.py` — A project's world: sections the user declares themselves.
 - `src/gamestudio/sheet/__init__.py` — Sheets: a file that holds several elements, split into single files.
@@ -169,6 +170,7 @@ repository again. A file without a summary is a header to write.
 - `app/src/pages/Showcase.tsx` — The showcase: the game's icons or props, shown as they are, to be critiqued.
 - `app/src/pages/Vfx.tsx` — VFX: effect concepts, and their handoff to an agent who builds them in Godot.
 - `app/src/pages/Viewport.tsx` — 3D viewport: the 3D step of a world card, not a page without context.
+- `app/src/pages/Views.tsx` — Views: the game's main pages, found in its files, each drawn by its own engine.
 - `app/src/pages/Workbench.tsx` — A world card's workbench: the card, its concepts, its 3D.
 - `app/src/pages/World.tsx` — World: the sections the user declares, and their cards.
 - `app/src/update.tsx` — The update window: what the studio shows at startup when its code has changed.

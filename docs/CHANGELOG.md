@@ -8,6 +8,12 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Views, under Interface** (`service/views.py`, MCP `game_views`): the
+  game's main pages, the one it starts on first, then the screens and worlds
+  its scripts open -- never a piece placed in another scene, nor a widget.
+  Each is drawn by the game's engine once it has settled, kept until its
+  scene changes, and named after the interface card describing it; it says
+  where it is opened from.
 - **The graphic style and the game type lead the art direction**: two
   sections at the head of the Universe, each written part by part -- the game
   type's gameplay style, setting and lore, the graphic style's look --, a card

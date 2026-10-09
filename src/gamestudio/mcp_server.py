@@ -61,6 +61,7 @@ from .service import (
     showcase,
     skills,
     video,
+    views,
     workspace,
     world,
 )
@@ -935,6 +936,19 @@ def influence_propose(project: str, aspect: str, prompt: str, influence: str = "
 
 
 # ----------------------------------------------------- the icon and prop showcase
+
+
+@tool
+def game_views(project: str) -> dict[str, Any]:
+    """The game's views: its main pages, the one it starts on first. Free.
+
+    Found without running anything: the main scene, then every scene a script
+    loads as a whole (a screen, a world), never a piece placed inside another
+    scene or a widget. Each with its file, its kind (`screen`, `world-2d`,
+    `world-3d`), the scripts that open it, and the interface card citing it.
+    To see one, `render_scene(project, scene=<file>)`.
+    """
+    return views.views(project)
 
 
 @tool
@@ -1944,6 +1958,7 @@ HUMAN_ONLY: dict[str, str] = {
                       "(`influence_propose`) and never pays",
     "influences.dismiss": "the user's answer to a proposal",
     "direction_chat.stop_all": "server shutdown: no agent answering in the Universe outlives it",
+    "views.image": "the Views page's thumbnails; an agent draws a view with `render_scene`",
     "direction_chat.draft": "the user asks a model to look at the influences' images and write "
                             "a prompt; an agent looks itself, then `influence_propose`",
     "direction_chat.thread": "the user's own conversation in the Universe; an agent works on "

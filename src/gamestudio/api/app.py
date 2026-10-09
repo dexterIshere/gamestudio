@@ -69,6 +69,7 @@ from ..service import (
     skills,
     trash,
     video,
+    views,
     workspace,
     world,
 )
@@ -964,6 +965,21 @@ def direction_stop(project: str, aspect: str) -> dict[str, Any]:
 def direction_reset(project: str, aspect: str) -> dict[str, Any]:
     """Start a new conversation; the previous one is kept, dated."""
     return direction_chat.reset(project, aspect)
+
+
+# ------------------------------------------------------- the game's main pages
+
+
+@app.get("/api/projects/{project}/views")
+def game_views(project: str) -> dict[str, Any]:
+    """The game's views: its main pages, the one it starts on first."""
+    return views.views(project)
+
+
+@app.get("/api/projects/{project}/views/{view}/image")
+def game_view_image(project: str, view: str) -> FileResponse:
+    """A view drawn by the game's engine; drawn once, kept until its scene changes."""
+    return _file(views.image(project, view), "image/png")
 
 
 # ------------------------------------------------- a game design card's workbench

@@ -626,5 +626,6 @@
   "unreadable answer from the model ({0})": "réponse illisible du modèle ({0})",
   "the model failed: {0}": "le modèle a échoué : {0}",
   "the model wrote no prompt: {0}": "le modèle n'a écrit aucun prompt : {0}",
-  "the model took too long to look at the images": "le modèle a mis trop longtemps à regarder les images"
+  "the model took too long to look at the images": "le modèle a mis trop longtemps à regarder les images",
+  "view not found: {0}": "vue introuvable : {0}"
 }

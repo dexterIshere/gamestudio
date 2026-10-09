@@ -11,6 +11,7 @@
 
 export const FR: Record<string, string | readonly [string, string]> = {
   // App.tsx
+  "Views": "Vues",
   "Discover": "Découvrir",
   "Team": "Équipe",
   "The world": "Le monde",
@@ -924,6 +925,14 @@ export const FR: Record<string, string | readonly [string, string]> = {
   "Save to the game": "Enregistrer dans le jeu",
   "Save {n} settings to {file} (Ctrl+S)": ["Enregistrer {n} réglage dans {file} (Ctrl+S)", "Enregistrer {n} réglages dans {file} (Ctrl+S)"],
   "Save to the game (Ctrl+S)": "Enregistrer dans le jeu (Ctrl+S)",
+  // pages/Views.tsx
+  "2D world": "Monde 2D",
+  "3D world": "Monde 3D",
+  "{n} views": ["{n} vue", "{n} vues"],
+  "No view found in the game": "Aucune vue trouvée dans le jeu",
+  "Not drawn": "Non dessinée",
+  "Start page": "Page d'entrée",
+  "Opened from": "Ouverte depuis",
   // pages/Vfx.tsx
   "Save the concept before sending it": "Enregistrer le concept avant de l'envoyer",
   "Create in Godot": "Créer dans Godot",

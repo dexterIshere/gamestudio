@@ -22,6 +22,7 @@ import Library from "./pages/Library";
 import Vfx from "./pages/Vfx";
 import Lookdev from "./pages/Lookdev";
 import ShowcasePage from "./pages/Showcase";
+import Views from "./pages/Views";
 import Compare from "./pages/Compare";
 import WorldPage, { SectionDialog, WorldGlyph } from "./pages/World";
 import ActivityBar from "./components/ActivityBar";
@@ -86,6 +87,12 @@ const ICONS = {
     <>
       <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
       <path d="M3.5 9h17M8 9v10.5" />
+    </>
+  ),
+  views: (
+    <>
+      <rect x="6.5" y="3.5" width="11" height="17" rx="2" />
+      <path d="M3.5 7v10M20.5 7v10M10.5 17.5h3" />
     </>
   ),
   icons: (
@@ -172,9 +179,10 @@ const PAGES = [
     key: "interface", label: t("Interface"), section: "design",
     component: shelf(t("Interface"), "design/interface", "interface"),
   },
-  // Icons and props are parts of the interface: filed under it, each with its
-  // own shelf. Their page is a showcase of the game's elements, to be judged;
-  // their written cards are behind "Cards".
+  // The views, icons and props are parts of the interface, filed under it.
+  // The views are the game's main pages; icons and props each have their
+  // shelf, and their page is a showcase of the game's elements, to be judged.
+  { key: "views", label: t("Views"), section: "design", parent: "interface", component: Views },
   {
     key: "icons", label: t("Icons"), section: "design", parent: "interface",
     component: () => <ShowcasePage kind="icons" />,
